@@ -1,0 +1,31 @@
+# 仅部署 Gateway + Redis（分布式场景，Agent 在其他服务器）
+# 用法: docker-compose -f docker-compose.gateway.yml up -d
+version: '3.8'
+
+services:
+  gateway:
+    build: ./gateway
+    container_name: ai-web-gateway
+    ports:
+      - "26669:26669"
+    env_file: .env.gateway
+    volumes:
+      - ./config:/app/config
+      - files_data:/data/files
+      - config_history:/data/config-history
+    restart: always
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    container_name: ai-web-redis
+    command: redis-server --maxmemory 256mb --maxmemory-policy volatile-lru
+    volumes:
+      - redis_data:/data
+    restart: always
+
+volumes:
+  redis_data:
+  files_data:
+  config_history:

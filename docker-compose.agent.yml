@@ -1,0 +1,30 @@
+# 仅部署 Agent（分布式场景，连接远程 Gateway）
+# 用法: docker-compose -f docker-compose.agent.yml up -d
+# 扩展: docker-compose -f docker-compose.agent.yml up -d --scale agent=3
+#
+# 前置条件:
+#   1. 复制 agent/ 目录和 config/ 目录到本服务器
+#   2. 创建 .env.agent 文件，设置 GATEWAY_URL 指向远程 Gateway
+#   3. 确保 config/ 目录包含 vendors.yaml 和 selectors.yaml
+
+version: '3.8'
+
+services:
+  agent:
+    build: ./agent
+    env_file: .env.agent
+    shm_size: '2gb'
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    volumes:
+      - chrome_data:/data/chrome
+      - ./config:/app/config
+    # 首次登录时取消注释
+    # ports:
+    #   - "5900:5900"
+    restart: always
+
+volumes:
+  chrome_data:

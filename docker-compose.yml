@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  gateway:
+    build: ./gateway
+    container_name: ai-web-gateway
+    ports:
+      - "26669:26669"
+    environment:
+      - API_KEY=${API_KEY:-changeme}
+      - AGENT_TOKEN=${AGENT_TOKEN:-agent-secret}
+      - PUBLIC_URL=${PUBLIC_URL:-http://localhost:26669}
+      - REDIS_URL=redis://redis:6379
+      - AGENT_TIMEOUT=180000
+      - QUEUE_TIMEOUT=120000
+      - VIDEO_QUEUE_TIMEOUT=600000
+      - VIDEO_TIMEOUT=1800000
+      - MAX_TABS_PER_AGENT=8
+      - FILE_DIR=/data/files
+      - FILE_TTL_HOURS=24
+      - ALERT_WEBHOOK=${ALERT_WEBHOOK:-}
+      - ALERT_DEDUP_SECONDS=300
+    volumes:
+      - ./config:/app/config          # 管理后台需要在线编辑配置文件
+      - files_data:/data/files
+      - config_history:/data/config-history
+    restart: always
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    container_name: ai-web-redis
+    command: redis-server --maxmemory 256mb --maxmemory-policy volatile-lru
+    volumes:
+      - redis_data:/data
+    restart: always
+
+  # ===== Agent (统一服务, 每个实例服务所有厂商) =====
+  # 扩展并发: docker-compose up --scale agent=3
+  # 代理分流: 在 .env 中设置 HTTP_PROXY/HTTPS_PROXY 指向 Clash 等分流代理
+  agent:
+    build: ./agent
+    environment:
+      - GATEWAY_URL=ws://gateway:26669/agent
+      - AGENT_TOKEN=${AGENT_TOKEN:-agent-secret}
+      - VENDORS=${VENDORS:-all}
+      - MAX_TASKS_PER_CONTEXT=5
+      - MAX_TABS=8
+      - DISPLAY=:99
+      - POLL_INTERVAL=500
+      - STABLE_COUNT=3
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+    shm_size: '2gb'
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    volumes:
+      - chrome_data:/data/chrome
+      - ./config:/app/config          # Agent 读取配置, 不写入
+    # 首次登录时取消注释
+    # ports:
+    #   - "5900:5900"
+    # environment 附加:
+    #   - VNC_PORT=5900
+    restart: always
+    depends_on:
+      - gateway
+
+volumes:
+  redis_data:
+  files_data:
+  config_history:
+  chrome_data:

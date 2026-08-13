@@ -1,0 +1,65 @@
+# 模型 → 厂商 → 任务类型路由表
+# /v1/models 返回此列表
+# Gateway 按 model 名查找 vendor + taskType，决定走同步还是异步流程
+# rateLimit 可选: qps(每秒请求数) + concurrency(最大并发)
+
+models:
+  # ===== 对话 =====
+  - name: gpt-4o-web
+    vendor: chatgpt
+    taskType: chat
+    description: "ChatGPT 网页端 (GPT-4o)"
+    rateLimit:
+      qps: 0.5
+      concurrency: 3
+
+  - name: gpt-4o-mini-web
+    vendor: chatgpt
+    taskType: chat
+    description: "ChatGPT 网页端 (GPT-4o mini)"
+
+  - name: claude-sonnet-web
+    vendor: claude
+    taskType: chat
+    description: "Claude 网页端 (Sonnet)"
+
+  - name: gemini-pro-web
+    vendor: gemini
+    taskType: chat
+    description: "Gemini 网页端 (Pro)"
+
+  - name: doubao-pro-web
+    vendor: doubao
+    taskType: chat
+    description: "豆包 网页端 (Pro)"
+
+  # ===== 图片生成 =====
+  - name: jimeng-image-web
+    vendor: jimeng
+    taskType: image
+    description: "即梦 图片生成"
+    rateLimit:
+      qps: 0.2
+      concurrency: 2
+
+  - name: gemini-image-web
+    vendor: gemini
+    taskType: image
+    description: "Gemini 图片生成"
+
+  # ===== 视频生成 =====
+  - name: kling-video-web
+    vendor: kling
+    taskType: video
+    description: "Kling 视频生成"
+    rateLimit:
+      qps: 0.1
+      concurrency: 4
+
+  - name: jimeng-video-web
+    vendor: jimeng
+    taskType: video
+    description: "即梦 视频生成"
+    rateLimit:
+      qps: 0.1
+      concurrency: 4
