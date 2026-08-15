@@ -152,7 +152,7 @@ wss.on('connection', (ws, req) => {
         console.log(`[ws] login_status: ${msg.agentId} ${msg.vendor} ${msg.status} vncPort=${msg.vncPort || 'N/A'}`)
         if (agentId) {
           if (msg.vncPort && msg.vncHost) {
-            agentPool.setVncInfo(agentId, msg.vncHost, msg.vncPort)
+            agentPool.setVncInfo(agentId, msg.vncHost, msg.vncPort, msg.vncPassword)
           } else {
             clearVncInfo(agentId)
           }

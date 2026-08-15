@@ -17,6 +17,7 @@ SCALE=1
 VNC_PORT="${VNC_PORT:-5900}"
 AGENT_HOSTNAME="agent"
 VNC_HOST=""
+VNC_PASSWORD="${VNC_PASSWORD:-ai-web-vnc-2024}"
 BUILD=false
 # 解析参数
 for arg in "$@"; do
@@ -31,6 +32,7 @@ for arg in "$@"; do
     --scale=*)        SCALE="${arg#*=}" ;;
     --vnc-port=*)     VNC_PORT="${arg#*=}" ;;
     --vnc-host=*)     VNC_HOST="${arg#*=}" ;;
+    --vnc-password=*) VNC_PASSWORD="${arg#*=}" ;;
     --hostname=*)     AGENT_HOSTNAME="${arg#*=}" ;;
     --dir=*)          INSTALL_DIR="${arg#*=}" ;;
     --build)          BUILD=true ;;
@@ -209,14 +211,11 @@ VNC_PORT=5900
 # 单机部署: 用容器名 (默认 = hostname)
 # 分布式部署: 用 Agent 服务器 IP (必须从 Gateway 可达)
 VNC_HOST=${VNC_HOST:-${AGENT_HOSTNAME}}
+VNC_PASSWORD=${VNC_PASSWORD}
 EOF
 
-# VNC 端口映射策略: SCALE=1 固定端口, SCALE>1 动态端口避免冲突
-if [ "$SCALE" -le 1 ]; then
-  VNC_PORT_MAPPING="127.0.0.1:${VNC_PORT}:5900"
-else
-  VNC_PORT_MAPPING="127.0.0.1::5900"
-fi
+# VNC 端口映射: 绑定 0.0.0.0 (x11vnc 已加密码认证)
+VNC_PORT_MAPPING="5900:5900"
 
 # 生成 docker-compose.yml
 if [ "$BUILD" = true ]; then
@@ -277,19 +276,10 @@ echo "=== Agent installation complete ==="
 echo "Instances: ${SCALE}"
 echo "Hostname:  ${AGENT_HOSTNAME}"
 echo "Profile:  /data/chrome/${AGENT_HOSTNAME} (Chrome 登录态持久化路径)"
-if [ "$SCALE" -le 1 ]; then
-  echo "VNC:      127.0.0.1:${VNC_PORT} (for first login)"
-else
-  echo "VNC:      dynamic ports (run 'docker compose ps' to see mappings)"
-  echo "WARNING:  --scale > 1 with same hostname will cause profile conflicts."
-  echo "          For multi-instance, use separate service definitions with different --hostname."
-fi
+echo "VNC:      0.0.0.0:${VNC_PORT} (password: ${VNC_PASSWORD})"
 echo ""
 echo "Next steps:"
 echo "  1. Open ${CONFIG_URL}/admin and login"
-echo "  2. Go to 'Account Management' and login to each AI vendor via VNC"
-if [ "$SCALE" -gt 1 ]; then
-  echo "  3. VNC port per instance: docker compose ps --format 'table {{.Name}}\t{{.Ports}}'"
-fi
-echo "  4. docker compose restart 可保留登录态; docker compose down/up 会重建容器但 hostname 固定, profile 保留"
-echo "  5. For multi-instance: re-run install-agent.sh with --hostname=agent-02 on the same or different server"
+echo "  2. Go to 'Account Management' and login to each AI vendor via noVNC"
+echo "  3. docker compose restart 可保留登录态; docker compose down/up 会重建容器但 hostname 固定, profile 保留"
+echo "  4. For multi-instance: re-run install-agent.sh with --hostname=agent-02 on the same or different server"

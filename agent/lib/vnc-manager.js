@@ -7,17 +7,25 @@ let currentVendor = null
 export async function startVnc(displayNum, port) {
   if (vncProcess) return true  // 已在运行
 
+  const password = process.env.VNC_PASSWORD || ''
+  if (!password) {
+    console.error('[vnc] VNC_PASSWORD not set, refusing to start (security)')
+    return false
+  }
+
   return new Promise((resolve) => {
     let resolved = false
     const done = (ok) => { if (!resolved) { resolved = true; resolve(ok) } }
 
     try {
-      vncProcess = spawn('x11vnc', [
+      const args = [
         '-display', `:${displayNum}`,
-        '-nopw', '-listen', '0.0.0.0',
+        '-listen', '0.0.0.0',
         '-rfbport', String(port),
         '-forever', '-shared', '-noxfixes',
-      ], { stdio: 'ignore' })
+        '-passwd', password,
+      ]
+      vncProcess = spawn('x11vnc', args, { stdio: 'ignore' })
 
       vncProcess.on('error', (e) => {
         console.error('[vnc] failed to start:', e.message)

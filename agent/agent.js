@@ -342,6 +342,7 @@ async function handleLoginMode(msg) {
     status: ok ? 'login_mode' : 'vnc_failed',
     vncPort: ok ? vncPort : null,
     vncHost: ok ? (process.env.VNC_HOST || AGENT_ID) : null,
+    vncPassword: ok ? (process.env.VNC_PASSWORD || '') : null,
   })
 
   // 启动登录检测快速轮询 (VNC 期间每 10s 检查一次，检测到登录成功立即关 VNC)

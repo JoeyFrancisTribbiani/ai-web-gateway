@@ -135,7 +135,7 @@ function adminVncStatus(res, path) {
   const agentId = path.split('/')[3]
   const vnc = getVncInfo(agentId)
   if (!vnc) return json(res, 200, { available: false })
-  json(res, 200, { available: true, host: vnc.host, port: vnc.port })
+  json(res, 200, { available: true, host: vnc.host, port: vnc.port, password: vnc.password })
 }
 
 function adminGetConfig(res, path) {

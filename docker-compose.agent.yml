@@ -27,11 +27,10 @@ services:
     volumes:
       - chrome_data:/data/chrome
       - ./config:/app/config
-    # VNC 端口 (动态映射, scale 时不冲突; 绑定 127.0.0.1 保证安全)
-    # 查看实际端口: docker compose ps
-    # 首次登录通过管理后台触发, SSH 隧道访问: ssh -L 5900:127.0.0.1:<port> server
+    # VNC 端口 (绑定 0.0.0.0，Gateway 需远程连接; x11vnc 已加密码认证)
+    # 固定端口 5900; 多实例需手动改为不同端口
     ports:
-      - "127.0.0.1::5900"
+      - "5900:5900"
     restart: always
 
 volumes:

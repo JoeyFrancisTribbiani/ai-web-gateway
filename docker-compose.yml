@@ -55,6 +55,7 @@ services:
       - STABLE_COUNT=3
       - VNC_PORT=5900
       - VNC_HOST=agent
+      - VNC_PASSWORD=${VNC_PASSWORD:-ai-web-vnc-2024}
       - HTTP_PROXY=${HTTP_PROXY:-}
       - HTTPS_PROXY=${HTTPS_PROXY:-}
     shm_size: '2gb'
@@ -65,10 +66,9 @@ services:
     volumes:
       - chrome_data:/data/chrome
       - ./config:/app/config          # Agent 读取配置, 不写入
-    # VNC 端口 (单实例固定 5900; 绑定 127.0.0.1 保证安全)
-    # 首次登录通过管理后台触发, SSH 隧道访问: ssh -L 5900:127.0.0.1:5900 server
+    # VNC 端口 (绑定 0.0.0.0，分布式部署 Gateway 需远程连接; x11vnc 已加密码认证)
     ports:
-      - "127.0.0.1:5900:5900"
+      - "5900:5900"
     restart: always
     depends_on:
       - gateway

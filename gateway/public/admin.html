@@ -288,6 +288,10 @@ async function connectNovnc(agentId) {
     });
   }
 
+  // 获取 VNC 密码
+  const vncStatus = await api(`/admin/vnc/${agentId}`);
+  const vncPassword = vncStatus.password || '';
+
   const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/novnc?token=${encodeURIComponent(apiKey)}&agent=${encodeURIComponent(agentId)}`;
   const rfb = new RFB(screen, wsUrl);
   rfb.resizeSession = true;
@@ -302,7 +306,8 @@ async function connectNovnc(agentId) {
     window._novncRfb = null;
   });
   rfb.addEventListener('credentialsrequired', () => {
-    document.getElementById('novnc-status').textContent = 'VNC 需要密码 (不应该出现，x11vnc 已设 -nopw)';
+    rfb.sendCredentials({ password: vncPassword });
+    document.getElementById('novnc-status').textContent = 'VNC 认证中...';
   });
 }
 

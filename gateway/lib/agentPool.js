@@ -20,6 +20,7 @@ class AgentInfo {
     this.taskCount = 0              // 资源回收计数
     this.vncHost = null             // VNC 连接地址 (noVNC 代理用)
     this.vncPort = null
+    this.vncPassword = null         // VNC 密码 (noVNC 认证用)
   }
 
   get canTakeSyncTask() {
@@ -177,11 +178,12 @@ export function getLoginStatusMatrix() {
   return result
 }
 
-export function setVncInfo(agentId, host, port) {
+export function setVncInfo(agentId, host, port, password) {
   const agent = agents.get(agentId)
   if (!agent) return
   agent.vncHost = host
   agent.vncPort = port
+  agent.vncPassword = password || null
 }
 
 export function clearVncInfo(agentId) {
@@ -189,12 +191,13 @@ export function clearVncInfo(agentId) {
   if (!agent) return
   agent.vncHost = null
   agent.vncPort = null
+  agent.vncPassword = null
 }
 
 export function getVncInfo(agentId) {
   const agent = agents.get(agentId)
   if (!agent || !agent.vncHost || !agent.vncPort) return null
-  return { host: agent.vncHost, port: agent.vncPort }
+  return { host: agent.vncHost, port: agent.vncPort, password: agent.vncPassword }
 }
 
 export function checkHeartbeats() {
