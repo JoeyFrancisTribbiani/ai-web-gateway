@@ -119,7 +119,7 @@ const server = http.createServer(async (req, res) => {
 })
 
 // ===== WebSocket 服务器（Agent 连接）=====
-const wss = new WebSocketServer({ server, path: '/agent' })
+const wss = new WebSocketServer({ server, path: '/agent', perMessageDeflate: false })
 
 wss.on('connection', (ws, req) => {
   // 鉴权
@@ -186,7 +186,7 @@ wss.on('connection', (ws, req) => {
 })
 
 // ===== noVNC WebSocket 代理（浏览器 → Gateway → Agent VNC）=====
-const novncWss = new WebSocketServer({ server, path: '/novnc' })
+const novncWss = new WebSocketServer({ server, path: '/novnc', perMessageDeflate: false })
 
 novncWss.on('connection', (ws, req) => {
   const url = new URL(req.url, 'http://localhost')
