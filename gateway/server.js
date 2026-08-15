@@ -1,5 +1,7 @@
 import http from 'http'
 import net from 'net'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { URL } from 'url'
 
@@ -84,6 +86,22 @@ const server = http.createServer(async (req, res) => {
     // ===== 管理后台页面（API_KEY Cookie 鉴权）=====
     if (path === '/admin' && method === 'GET') {
       return await handleAdmin(req, res, path, method, null, req.socket.remoteAddress)
+    }
+
+    // ===== noVNC 静态文件（无需鉴权，仅 JS/CSS 资源）=====
+    if (path.startsWith('/novnc/') && method === 'GET') {
+      const filePath = join(process.cwd(), 'public', path)
+      if (!filePath.startsWith(join(process.cwd(), 'public'))) return json(res, 403, { error: 'forbidden' })
+      try {
+        const data = readFileSync(filePath)
+        const ext = path.split('.').pop()
+        const types = { js: 'text/javascript', mjs: 'text/javascript', css: 'text/css', html: 'text/html', json: 'application/json', png: 'image/png', svg: 'image/svg+xml' }
+        res.writeHead(200, { 'Content-Type': types[ext] || 'application/octet-stream' })
+        res.end(data)
+      } catch {
+        json(res, 404, { error: 'not found' })
+      }
+      return
     }
 
     // ===== API 端点（API_KEY 鉴权）=====

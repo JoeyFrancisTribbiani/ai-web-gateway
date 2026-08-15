@@ -57,12 +57,18 @@
 <script>
 const API = '';
 let apiKey = localStorage.getItem('apiKey') || '';
-if (!apiKey) { apiKey = prompt('请输入 API_KEY'); localStorage.setItem('apiKey', apiKey); }
+if (!apiKey) { apiKey = prompt('请输入 API_KEY'); if (apiKey) localStorage.setItem('apiKey', apiKey); }
 
 async function api(path, method = 'GET', body = null) {
   const opts = { method, headers: { 'Authorization': `Bearer ${apiKey}` } };
   if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
   const r = await fetch(API + path, opts);
+  if (r.status === 401) {
+    apiKey = prompt('API_KEY 错误，请重新输入：');
+    if (apiKey) { localStorage.setItem('apiKey', apiKey); return api(path, method, body); }
+    throw new Error('未授权');
+  }
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
   return r.json();
 }
 
@@ -101,15 +107,20 @@ async function loadDashboard() {
 }
 
 async function loadAgents() {
-  const agents = await api('/admin/agents');
   const el = document.getElementById('page-agents');
-  let html = '<div class="card"><table><tr><th>Agent ID</th><th>状态</th><th>厂商</th><th>Tabs</th><th>视频轮询</th><th>任务数</th><th>内存</th><th>当前任务</th><th>操作</th></tr>';
+  el.innerHTML = '<div class="card"><p>加载中...</p></div>';
+  try {
+    const agents = await api('/admin/agents');
+    let html = '<div class="card"><table><tr><th>Agent ID</th><th>状态</th><th>厂商</th><th>Tabs</th><th>视频轮询</th><th>任务数</th><th>内存</th><th>当前任务</th><th>操作</th></tr>';
   for (const a of agents) {
     const badge = a.isOnline ? (a.status.includes('idle') ? 'badge-green' : 'badge-yellow') : 'badge-red';
     html += `<tr><td>${a.agentId}</td><td><span class="badge ${badge}">${a.status}</span></td><td>${a.vendors.join(', ')}</td><td>${a.activeTabs}</td><td>${a.videoPolling}</td><td>${a.taskCount}</td><td>${a.resources?.chromeMemoryMB || 0}MB</td><td>${a.currentTask ? a.currentTask.vendor + ' ' + a.currentTask.model : '-'}</td><td><button class="btn btn-primary btn-sm" onclick="restartAgent('${a.agentId}')">重启</button></td></tr>`;
   }
   html += '</table></div>';
   el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = `<div class="card"><p style="color:red">加载失败: ${e.message}</p></div>`;
+  }
 }
 
 async function loadLogin() {
@@ -277,15 +288,15 @@ async function openNovnc(agentId, vendor) {
 
 async function connectNovnc(agentId) {
   const screen = document.getElementById('novnc-screen');
-  // 动态加载 noVNC
+  // 动态加载 noVNC (本地 ES module)
   if (!window.RFB) {
-    await new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/@novnc/novnc@1.7.0/dist/novnc.min.js';
-      s.onload = resolve;
-      s.onerror = () => reject(new Error('noVNC 加载失败'));
-      document.head.appendChild(s);
-    });
+    try {
+      const mod = await import('/novnc/core/rfb.js');
+      window.RFB = mod.default;
+    } catch (e) {
+      document.getElementById('novnc-status').textContent = 'noVNC 加载失败: ' + e.message;
+      return;
+    }
   }
 
   // 获取 VNC 密码
