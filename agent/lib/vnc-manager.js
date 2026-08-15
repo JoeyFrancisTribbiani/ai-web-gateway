@@ -1,35 +1,61 @@
-import { execSync, spawn } from 'child_process'
+import { spawn } from 'child_process'
+import { createConnection } from 'net'
 
 let vncProcess = null
 let currentVendor = null
 
-export function startVnc(displayNum, port) {
+export async function startVnc(displayNum, port) {
   if (vncProcess) return true  // 已在运行
 
-  try {
-    vncProcess = spawn('x11vnc', [
-      '-display', `:${displayNum}`,
-      '-nopw', '-listen', '0.0.0.0',
-      '-rfbport', String(port),
-      '-forever', '-shared', '-noxfixes',
-    ], { stdio: 'ignore' })
+  return new Promise((resolve) => {
+    let resolved = false
+    const done = (ok) => { if (!resolved) { resolved = true; resolve(ok) } }
 
-    vncProcess.on('error', (e) => {
-      console.error('[vnc] failed to start:', e.message)
-      vncProcess = null
-    })
+    try {
+      vncProcess = spawn('x11vnc', [
+        '-display', `:${displayNum}`,
+        '-nopw', '-listen', '0.0.0.0',
+        '-rfbport', String(port),
+        '-forever', '-shared', '-noxfixes',
+      ], { stdio: 'ignore' })
 
-    vncProcess.on('exit', (code) => {
-      console.log(`[vnc] process exited with code ${code}`)
-      vncProcess = null
-    })
+      vncProcess.on('error', (e) => {
+        console.error('[vnc] failed to start:', e.message)
+        vncProcess = null
+        done(false)
+      })
 
-    console.log(`[vnc] started on port ${port}`)
-    return true
-  } catch (e) {
-    console.error('[vnc] start error:', e.message)
-    return false
-  }
+      vncProcess.on('exit', (code) => {
+        console.log(`[vnc] process exited with code ${code}`)
+        vncProcess = null
+        done(false)
+      })
+
+      // 轮询等待端口就绪 (最多等 5s)
+      let attempts = 0
+      const checkPort = () => {
+        if (!vncProcess) return  // 进程已退出
+        const sock = createConnection(port, '127.0.0.1', () => {
+          sock.destroy()
+          console.log(`[vnc] ready on port ${port}`)
+          done(true)
+        })
+        sock.on('error', () => {
+          attempts++
+          if (attempts > 50) {
+            console.error('[vnc] port not ready after 5s')
+            done(false)
+          } else {
+            setTimeout(checkPort, 100)
+          }
+        })
+      }
+      setTimeout(checkPort, 200)
+    } catch (e) {
+      console.error('[vnc] start error:', e.message)
+      done(false)
+    }
+  })
 }
 
 export function stopVnc() {

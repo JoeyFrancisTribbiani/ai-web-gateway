@@ -15,7 +15,7 @@ services:
       - QUEUE_TIMEOUT=120000
       - VIDEO_QUEUE_TIMEOUT=600000
       - VIDEO_TIMEOUT=1800000
-      - MAX_TABS_PER_AGENT=8
+      - MAX_TABS_PER_AGENT=12
       - FILE_DIR=/data/files
       - FILE_TTL_HOURS=24
       - ALERT_WEBHOOK=${ALERT_WEBHOOK:-}
@@ -37,19 +37,24 @@ services:
     restart: always
 
   # ===== Agent (统一服务, 每个实例服务所有厂商) =====
-  # 扩展并发: docker-compose up --scale agent=3
+  # 单机部署: hostname 固定为 agent, Chrome profile 路径稳定, 容器重建后登录态保留
+  # 多实例: 不建议用 --scale (hostname 相同会导致 profile 冲突)
+  #         建议复制此 service 定义为 agent2/agent3, 各设不同 hostname
   # 代理分流: 在 .env 中设置 HTTP_PROXY/HTTPS_PROXY 指向 Clash 等分流代理
   agent:
     build: ./agent
+    hostname: agent
     environment:
       - GATEWAY_URL=ws://gateway:26669/agent
       - AGENT_TOKEN=${AGENT_TOKEN:-agent-secret}
       - VENDORS=${VENDORS:-all}
       - MAX_TASKS_PER_CONTEXT=5
-      - MAX_TABS=8
+      - MAX_TABS=12
       - DISPLAY=:99
       - POLL_INTERVAL=500
       - STABLE_COUNT=3
+      - VNC_PORT=5900
+      - VNC_HOST=agent
       - HTTP_PROXY=${HTTP_PROXY:-}
       - HTTPS_PROXY=${HTTPS_PROXY:-}
     shm_size: '2gb'
@@ -60,11 +65,10 @@ services:
     volumes:
       - chrome_data:/data/chrome
       - ./config:/app/config          # Agent 读取配置, 不写入
-    # 首次登录时取消注释
-    # ports:
-    #   - "5900:5900"
-    # environment 附加:
-    #   - VNC_PORT=5900
+    # VNC 端口 (单实例固定 5900; 绑定 127.0.0.1 保证安全)
+    # 首次登录通过管理后台触发, SSH 隧道访问: ssh -L 5900:127.0.0.1:5900 server
+    ports:
+      - "127.0.0.1:5900:5900"
     restart: always
     depends_on:
       - gateway

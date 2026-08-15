@@ -1,6 +1,11 @@
 # 仅部署 Agent（分布式场景，连接远程 Gateway）
 # 用法: docker-compose -f docker-compose.agent.yml up -d
-# 扩展: docker-compose -f docker-compose.agent.yml up -d --scale agent=3
+#
+# Chrome profile 持久化:
+#   hostname 决定 Chrome profile 路径 (/data/chrome/<hostname>)
+#   单实例: install-agent.sh 默认设 hostname=agent, 容器重建后登录态保留
+#   多实例: 不建议用 --scale (hostname 相同会导致 profile 冲突)
+#           建议复制此 service 定义为 agent2/agent3, 各设不同 hostname
 #
 # 前置条件:
 #   1. 复制 agent/ 目录和 config/ 目录到本服务器
@@ -12,6 +17,7 @@ version: '3.8'
 services:
   agent:
     build: ./agent
+    hostname: ${AGENT_HOSTNAME:-agent}
     env_file: .env.agent
     shm_size: '2gb'
     deploy:
@@ -21,9 +27,11 @@ services:
     volumes:
       - chrome_data:/data/chrome
       - ./config:/app/config
-    # 首次登录时取消注释
-    # ports:
-    #   - "5900:5900"
+    # VNC 端口 (动态映射, scale 时不冲突; 绑定 127.0.0.1 保证安全)
+    # 查看实际端口: docker compose ps
+    # 首次登录通过管理后台触发, SSH 隧道访问: ssh -L 5900:127.0.0.1:<port> server
+    ports:
+      - "127.0.0.1::5900"
     restart: always
 
 volumes:

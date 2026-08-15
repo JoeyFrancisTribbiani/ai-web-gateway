@@ -1,6 +1,7 @@
 import { WebSocket } from 'ws'
 
 const HEARTBEAT_TIMEOUT = 30 * 1000  // 30s 无心跳 → offline
+const OFFLINE_PURGE_TIMEOUT = 10 * 60 * 1000  // 10min 后清理 offline Agent
 
 class AgentInfo {
   constructor(ws, data) {
@@ -17,6 +18,8 @@ class AgentInfo {
     this.currentTask = null         // { requestId, vendor, model }
     this.maxTabs = data.maxTabs || 8
     this.taskCount = 0              // 资源回收计数
+    this.vncHost = null             // VNC 连接地址 (noVNC 代理用)
+    this.vncPort = null
   }
 
   get canTakeSyncTask() {
@@ -174,6 +177,26 @@ export function getLoginStatusMatrix() {
   return result
 }
 
+export function setVncInfo(agentId, host, port) {
+  const agent = agents.get(agentId)
+  if (!agent) return
+  agent.vncHost = host
+  agent.vncPort = port
+}
+
+export function clearVncInfo(agentId) {
+  const agent = agents.get(agentId)
+  if (!agent) return
+  agent.vncHost = null
+  agent.vncPort = null
+}
+
+export function getVncInfo(agentId) {
+  const agent = agents.get(agentId)
+  if (!agent || !agent.vncHost || !agent.vncPort) return null
+  return { host: agent.vncHost, port: agent.vncPort }
+}
+
 export function checkHeartbeats() {
   const now = Date.now()
   const offline = []
@@ -183,6 +206,13 @@ export function checkHeartbeats() {
       agent.currentTask = null
       offline.push(agentId)
       console.log(`[agentPool] heartbeat timeout: ${agentId}`)
+    }
+    // 清理长时间 offline 的 Agent（防止僵尸累积）
+    if (agent.status === 'offline' && (now - agent.lastSeen > OFFLINE_PURGE_TIMEOUT)) {
+      unindexVendor(agent)
+      try { agent.ws.close(4002, 'purged after offline timeout') } catch {}
+      agents.delete(agentId)
+      console.log(`[agentPool] purged offline agent: ${agentId}`)
     }
   }
   return offline

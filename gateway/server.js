@@ -1,5 +1,6 @@
 import http from 'http'
-import { WebSocketServer } from 'ws'
+import net from 'net'
+import { WebSocketServer, WebSocket } from 'ws'
 import { URL } from 'url'
 
 import * as config from './lib/config-loader.js'
@@ -8,7 +9,7 @@ import * as scheduler from './lib/scheduler.js'
 import { cleanupOnStartup } from './lib/taskStore.js'
 import { startCleanup as startFileCleanup } from './lib/fileStore.js'
 import { startAlertEngine } from './lib/alerts.js'
-import { checkHeartbeats } from './lib/agentPool.js'
+import { checkHeartbeats, getVncInfo, clearVncInfo } from './lib/agentPool.js'
 
 import { handleChat } from './routes/chat.js'
 import { handleImages } from './routes/images.js'
@@ -147,8 +148,15 @@ wss.on('connection', (ws, req) => {
         break
       }
       case 'login_status': {
-        // Agent 上报登录状态变化
+        // Agent 上报登录状态变化 + VNC 连接信息
         console.log(`[ws] login_status: ${msg.agentId} ${msg.vendor} ${msg.status} vncPort=${msg.vncPort || 'N/A'}`)
+        if (agentId) {
+          if (msg.vncPort && msg.vncHost) {
+            agentPool.setVncInfo(agentId, msg.vncHost, msg.vncPort)
+          } else {
+            clearVncInfo(agentId)
+          }
+        }
         break
       }
       default: {
@@ -174,6 +182,56 @@ wss.on('connection', (ws, req) => {
 
   ws.on('error', (err) => {
     console.error(`[ws] agent ${agentId} error:`, err.message)
+  })
+})
+
+// ===== noVNC WebSocket 代理（浏览器 → Gateway → Agent VNC）=====
+const novncWss = new WebSocketServer({ server, path: '/novnc' })
+
+novncWss.on('connection', (ws, req) => {
+  const url = new URL(req.url, 'http://localhost')
+  const token = url.searchParams.get('token')
+  const agentId = url.searchParams.get('agent')
+
+  // API_KEY 鉴权
+  if (token !== API_KEY) {
+    ws.close(4001, 'unauthorized')
+    return
+  }
+
+  const vnc = getVncInfo(agentId)
+  if (!vnc) {
+    ws.close(4002, 'vnc not available')
+    return
+  }
+
+  // 连接 Agent 的 VNC (RFB) 端口
+  const vncSocket = net.connect(vnc.port, vnc.host, () => {
+    console.log(`[novnc] connected to ${vnc.host}:${vnc.port} for ${agentId}`)
+  })
+
+  vncSocket.on('error', (err) => {
+    console.error(`[novnc] tcp error: ${err.message}`)
+    ws.close(4003, 'vnc connection failed')
+  })
+
+  // VNC → 浏览器
+  vncSocket.on('data', (data) => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(data)
+  })
+
+  vncSocket.on('close', () => {
+    if (ws.readyState === WebSocket.OPEN) ws.close(1000, 'vnc closed')
+  })
+
+  // 浏览器 → VNC
+  ws.on('message', (data) => {
+    if (!vncSocket.destroyed) vncSocket.write(data)
+  })
+
+  ws.on('close', () => {
+    if (!vncSocket.destroyed) vncSocket.destroy()
+    console.log(`[novnc] session closed for ${agentId}`)
   })
 })
 

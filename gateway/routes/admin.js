@@ -1,4 +1,4 @@
-import { getAllAgents, getAgent, getLoginStatusMatrix } from '../lib/agentPool.js'
+import { getAllAgents, getAgent, getLoginStatusMatrix, removeAgent, getVncInfo } from '../lib/agentPool.js'
 import { getDashboardStats, getTrend } from '../lib/stats.js'
 import { getVideoTaskList, getTaskHistory, getAuditLogs, addAuditLog } from '../lib/taskStore.js'
 import { getFileList, cleanupFiles } from '../lib/fileStore.js'
@@ -18,8 +18,10 @@ export async function handleAdmin(req, res, path, method, body, ip) {
   if (path === '/admin/stats/trend' && method === 'GET') return adminStatsTrend(req, res)
   if (path === '/admin/agents' && method === 'GET') return adminAgents(res)
   if (path.startsWith('/admin/agents/') && method === 'POST' && path.endsWith('/restart')) return adminRestartAgent(res, path)
+  if (path.startsWith('/admin/agents/') && method === 'DELETE') return adminRemoveAgent(res, path, ip)
   if (path === '/admin/login-status' && method === 'GET') return adminLoginStatus(res)
   if (path.startsWith('/admin/login/') && method === 'POST') return adminLogin(req, res, path)
+  if (path.startsWith('/admin/vnc/') && method === 'GET') return adminVncStatus(res, path)
   if (path === '/admin/config/selectors/history' && method === 'GET') return adminSelectorHistory(res)
   if (path.startsWith('/admin/config/selectors/history/') && method === 'GET') return adminSelectorVersion(res, path)
   if (path.startsWith('/admin/config/selectors/rollback/') && method === 'POST') return adminSelectorRollback(res, path, ip)
@@ -96,6 +98,25 @@ function adminRestartAgent(res, path) {
   json(res, 200, { ok: true, message: 'restart signal sent' })
 }
 
+async function adminRemoveAgent(res, path, ip) {
+  const agentId = path.split('/')[3]
+  const agent = getAgent(agentId)
+  if (!agent) return json(res, 404, { error: 'agent not found' })
+
+  // 1. 通知 Agent 优雅退出（Agent 收到后关闭 Chrome + 断开 WS）
+  agent.send({ type: 'shutdown' })
+
+  // 2. 走完整的断连清理流程（取消同步任务、标记视频任务 failed、唤醒排队）
+  const { handleAgentDisconnect } = await import('../lib/scheduler.js')
+  await handleAgentDisconnect(agentId)
+
+  // 3. 立即从 agentPool 移除（不等 10 分钟自动 purge）
+  removeAgent(agentId)
+
+  addAuditLog({ action: `卸载 Agent ${agentId}`, ip, ts: Date.now() })
+  json(res, 200, { ok: true, message: 'agent removed', agentId })
+}
+
 function adminLoginStatus(res) {
   json(res, 200, getLoginStatusMatrix())
 }
@@ -107,7 +128,14 @@ function adminLogin(req, res, path) {
   const agent = getAgent(agentId)
   if (!agent) return json(res, 404, { error: 'agent not found' })
   agent.send({ type: 'login_mode', vendor })
-  json(res, 200, { ok: true, message: 'login mode activated', agentId, vendor })
+  json(res, 200, { ok: true, message: 'login mode activated', agentId, vendor, novnc: true })
+}
+
+function adminVncStatus(res, path) {
+  const agentId = path.split('/')[3]
+  const vnc = getVncInfo(agentId)
+  if (!vnc) return json(res, 200, { available: false })
+  json(res, 200, { available: true, host: vnc.host, port: vnc.port })
 }
 
 function adminGetConfig(res, path) {

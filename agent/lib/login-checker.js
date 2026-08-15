@@ -29,8 +29,8 @@ async function checkAll() {
         : 0
 
       let status
-      if (loggedIn > 0) status = 'logged_in'
-      else if (loggedOut > 0) status = 'logged_out'
+      if (loggedOut > 0) status = 'logged_out'
+      else if (loggedIn > 0) status = 'logged_in'
       else status = 'unknown'
 
       // 只在状态变化时回调
@@ -54,8 +54,8 @@ export async function checkLogin(vendor, page) {
       ? await page.locator(selectors.loginCheck.loggedOut).count()
       : 0
 
-    if (loggedIn > 0) return 'logged_in'
     if (loggedOut > 0) return 'logged_out'
+    if (loggedIn > 0) return 'logged_in'
     return 'unknown'
   } catch {
     return 'unknown'

@@ -223,11 +223,97 @@ async function restartAgent(agentId) {
 
 async function loginAgent(agentId, vendor) {
   const r = await api(`/admin/login/${agentId}/${vendor}`, 'POST');
-  if (r.vncPort) {
+  if (r.novnc) {
+    openNovnc(agentId, vendor);
+  } else if (r.vncPort) {
     alert(`VNC 已开启，端口 ${r.vncPort}\n请用 VNC 客户端连接服务器:${r.vncPort}`);
   } else {
     alert(r.message || '登录模式已开启');
   }
+}
+
+// ===== noVNC 内嵌登录 =====
+let novncPolling = false;
+
+async function openNovnc(agentId, vendor) {
+  // 创建模态框
+  let modal = document.getElementById('novnc-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'novnc-modal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;';
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `
+    <div style="margin-bottom:12px;color:#e2e8f0;font-size:14px;">
+      <span id="novnc-status">等待 VNC 启动...</span>
+      <span style="color:#64748b;margin-left:12px;">${agentId} / ${vendor}</span>
+      <button class="btn btn-danger btn-sm" style="margin-left:12px;" onclick="closeNovnc()">关闭</button>
+    </div>
+    <div id="novnc-screen" style="width:min(1280px,95vw);height:min(800px,85vh);background:#000;border:2px solid #334155;border-radius:8px;overflow:hidden;"></div>
+  `;
+  modal.style.display = 'flex';
+
+  // 轮询 VNC 状态
+  novncPolling = true;
+  let attempts = 0;
+  while (novncPolling && attempts < 30) {
+    const status = await api(`/admin/vnc/${agentId}`);
+    if (status.available) {
+      novncPolling = false;
+      document.getElementById('novnc-status').textContent = 'VNC 已连接，请在下方窗口登录 ' + vendor;
+      connectNovnc(agentId);
+      return;
+    }
+    document.getElementById('novnc-status').textContent = `等待 VNC 启动... (${attempts + 1}/30)`;
+    await new Promise(r => setTimeout(r, 1000));
+    attempts++;
+  }
+  if (novncPolling) {
+    document.getElementById('novnc-status').textContent = 'VNC 启动超时，请检查 Agent 状态';
+    novncPolling = false;
+  }
+}
+
+async function connectNovnc(agentId) {
+  const screen = document.getElementById('novnc-screen');
+  // 动态加载 noVNC
+  if (!window.RFB) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/@novnc/novnc@1.7.0/dist/novnc.min.js';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('noVNC 加载失败'));
+      document.head.appendChild(s);
+    });
+  }
+
+  const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/novnc?token=${encodeURIComponent(apiKey)}&agent=${encodeURIComponent(agentId)}`;
+  const rfb = new RFB(screen, wsUrl);
+  rfb.resizeSession = true;
+  rfb.scaleViewport = true;
+  window._novncRfb = rfb;
+
+  rfb.addEventListener('connect', () => {
+    document.getElementById('novnc-status').textContent = 'VNC 已连接，请在下方窗口操作';
+  });
+  rfb.addEventListener('disconnect', (e) => {
+    document.getElementById('novnc-status').textContent = e.detail.clean ? 'VNC 已断开' : 'VNC 连接失败';
+    window._novncRfb = null;
+  });
+  rfb.addEventListener('credentialsrequired', () => {
+    document.getElementById('novnc-status').textContent = 'VNC 需要密码 (不应该出现，x11vnc 已设 -nopw)';
+  });
+}
+
+function closeNovnc() {
+  novncPolling = false;
+  if (window._novncRfb) {
+    try { window._novncRfb.disconnect(); } catch {}
+    window._novncRfb = null;
+  }
+  const modal = document.getElementById('novnc-modal');
+  if (modal) modal.style.display = 'none';
 }
 
 async function cancelVideo(taskId) {

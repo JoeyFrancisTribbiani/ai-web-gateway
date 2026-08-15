@@ -2,7 +2,6 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { parse as parseYaml } from 'yaml'
 import { hostname } from 'os'
-import { randomBytes } from 'crypto'
 
 import * as wsClient from './lib/ws-client.js'
 import * as chrome from './lib/chrome.js'
@@ -16,7 +15,7 @@ import { uploadFile, downloadFile, cleanupLocalFile } from './lib/file-uploader.
 import * as mediaExtractor from './lib/media-extractor.js'
 
 // ===== 配置 =====
-const AGENT_ID = process.env.AGENT_ID || `agent-${hostname()}-${randomBytes(2).toString('hex')}`
+const AGENT_ID = process.env.AGENT_ID || hostname()
 const VENDORS_ENV = process.env.VENDORS || 'all'
 const CONFIG_DIR = process.env.CONFIG_DIR || '/app/config'
 const MAX_TABS = parseInt(process.env.MAX_TABS || '8', 10)
@@ -59,14 +58,15 @@ async function main() {
   initSelectors()
 
   // 3. Chrome 启动
-  await chrome.init(vendors, vendorUrls)
+  await chrome.init(vendors, vendorUrls, AGENT_ID)
 
   // 4. 登录检测
   loginChecker.init(chrome.getAllSessionTabs(), (vendor, status) => {
     loginStatus[vendor] = status
-    wsClient.send({ type: 'login_status', agentId: AGENT_ID, vendor, status })
+    // 登录成功时带 vncPort:null 通知 Gateway 清除 VNC 信息
+    const extra = status === 'logged_in' ? { vncPort: null, vncHost: null } : {}
+    wsClient.send({ type: 'login_status', agentId: AGENT_ID, vendor, status, ...extra })
     console.log(`[agent] login status: ${vendor} → ${status}`)
-    // 登录成功后关闭 VNC
     if (status === 'logged_in') {
       vncManager.stopVnc()
       console.log('[agent] VNC stopped after successful login')
@@ -75,10 +75,13 @@ async function main() {
 
   // 5. WebSocket 连接
   wsClient.connect(handleMessage, async () => {
-    // 重连成功后（WS 已连接）清理视频轮询并通知 Gateway
-    videoPoller.stopAllPolling(true, 'Agent 重连')
+    // 重连成功后：先重新注册，再清理视频轮询
+    // 顺序很重要：register 必须在 video_failed 之前发送，
+    // 否则 Gateway 端 agentId 为 null，video_failed 消息会被丢弃
     registered = false
-    console.log('[agent] reconnected, video polling cleared, will re-register')
+    heartbeat()  // 发送 register
+    videoPoller.stopAllPolling(true, 'Agent 重连')
+    console.log('[agent] reconnected, re-registered, video polling cleared')
   })
 
   // 6. 心跳
@@ -135,6 +138,8 @@ async function handleMessage(msg) {
       return handleLoginMode(msg)
     case 'restart':
       return handleRestart()
+    case 'shutdown':
+      return handleShutdown()
     case 'cancel':
       if (currentAbortController) currentAbortController.abort()
       break  // currentTask 在 finally 块中清理，不在此处清除
@@ -326,17 +331,44 @@ async function handleLoginMode(msg) {
   const { vendor } = msg
   vncManager.setVendor(vendor)
 
-  // 开启 VNC (使用固定端口或动态分配)
-  const vncPort = 5900 + (vendors.indexOf(vendor) % 10)
-  vncManager.startVnc(DISPLAY.replace(':', ''), vncPort)
+  // 开启 VNC (固定端口，同一时间只登录一个厂商)
+  const vncPort = parseInt(process.env.VNC_PORT || '5900', 10)
+  const ok = await vncManager.startVnc(DISPLAY.replace(':', ''), vncPort)
 
   wsClient.send({
     type: 'login_status',
     agentId: AGENT_ID,
     vendor,
-    status: 'login_mode',
-    vncPort,
+    status: ok ? 'login_mode' : 'vnc_failed',
+    vncPort: ok ? vncPort : null,
+    vncHost: ok ? (process.env.VNC_HOST || AGENT_ID) : null,
   })
+
+  // 启动登录检测快速轮询 (VNC 期间每 10s 检查一次，检测到登录成功立即关 VNC)
+  if (ok) startLoginWatch(vendor)
+}
+
+// VNC 登录期间的快速检测定时器
+let loginWatchTimer = null
+
+function startLoginWatch(vendor) {
+  stopLoginWatch()
+  loginWatchTimer = setInterval(async () => {
+    const page = chrome.getSessionTab(vendor)
+    if (!page) return
+    const status = await loginChecker.checkLogin(vendor, page)
+    if (status === 'logged_in') {
+      stopLoginWatch()
+      loginStatus[vendor] = 'logged_in'
+      wsClient.send({ type: 'login_status', agentId: AGENT_ID, vendor, status: 'logged_in', vncPort: null, vncHost: null })
+      vncManager.stopVnc()
+      console.log(`[agent] login detected for ${vendor}, VNC stopped`)
+    }
+  }, 10000)
+}
+
+function stopLoginWatch() {
+  if (loginWatchTimer) { clearInterval(loginWatchTimer); loginWatchTimer = null }
 }
 
 // ===== 重启 =====
@@ -353,12 +385,32 @@ async function handleRestart() {
   // 重新初始化登录检测（包含 VNC 停止逻辑）
   loginChecker.init(chrome.getAllSessionTabs(), (vendor, status) => {
     loginStatus[vendor] = status
-    wsClient.send({ type: 'login_status', agentId: AGENT_ID, vendor, status })
+    const extra = status === 'logged_in' ? { vncPort: null, vncHost: null } : {}
+    wsClient.send({ type: 'login_status', agentId: AGENT_ID, vendor, status, ...extra })
     if (status === 'logged_in') {
       vncManager.stopVnc()
       console.log('[agent] VNC stopped after successful login')
     }
   })
+}
+
+// ===== 优雅退出（被 Gateway 卸载）=====
+async function handleShutdown() {
+  console.log('[agent] shutdown requested')
+  // 中止当前同步任务
+  if (currentAbortController) currentAbortController.abort()
+  currentTask = null
+  currentAbortController = null
+  // 停止登录检测快速轮询
+  stopLoginWatch()
+  // 停止视频轮询（不通知 Gateway，Gateway 侧已自行标记 failed）
+  videoPoller.stopAllPolling(false)
+  // 停止 VNC
+  vncManager.stopVnc()
+  // 关闭 Chrome
+  await chrome.close()
+  console.log('[agent] shutdown complete, exiting')
+  process.exit(0)
 }
 
 // ===== 启动 =====

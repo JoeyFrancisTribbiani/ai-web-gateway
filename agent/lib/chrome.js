@@ -3,7 +3,7 @@ import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { getPollingCount } from './video-poller.js'
 
-const USER_DATA_DIR = process.env.USER_DATA_DIR || '/data/chrome'
+let USER_DATA_DIR = ''
 const MAX_TASKS_PER_CONTEXT = parseInt(process.env.MAX_TASKS_PER_CONTEXT || '5', 10)
 const MAX_TABS = parseInt(process.env.MAX_TABS || '8', 10)
 const DISPLAY = process.env.DISPLAY || ':99'
@@ -17,7 +17,7 @@ let isBusy = false  // 同步任务进行中标志
 let savedVendors = []
 let savedVendorUrls = {}
 
-const CHROME_ARGS = [
+const DEFAULT_CHROME_ARGS = [
   '--disable-blink-features=AutomationControlled',
   '--no-sandbox',
   '--disable-setuid-sandbox',
@@ -42,7 +42,16 @@ const CHROME_ARGS = [
   '--force-color-profile=srgb',
 ]
 
-export async function init(vendors, vendorUrls) {
+let CHROME_ARGS = process.env.CHROME_ARGS
+  ? (process.env.CHROME_ARGS.includes(',') && !process.env.CHROME_ARGS.includes(' ')
+      ? process.env.CHROME_ARGS.split(',')
+      : process.env.CHROME_ARGS.split(' ')
+    ).map(s => s.trim()).filter(Boolean)
+  : DEFAULT_CHROME_ARGS
+if (CHROME_ARGS.length === 0) CHROME_ARGS = DEFAULT_CHROME_ARGS
+
+export async function init(vendors, vendorUrls, agentId) {
+  USER_DATA_DIR = process.env.USER_DATA_DIR || join('/data/chrome', agentId)
   if (!existsSync(USER_DATA_DIR)) mkdirSync(USER_DATA_DIR, { recursive: true })
 
   savedVendors = vendors

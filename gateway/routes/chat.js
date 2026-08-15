@@ -7,6 +7,8 @@ import { recordRequest } from '../lib/stats.js'
 import { addTaskHistory } from '../lib/taskStore.js'
 import { randomBytes } from 'crypto'
 
+const AGENT_TIMEOUT = parseInt(process.env.AGENT_TIMEOUT || '180000', 10)
+
 export async function handleChat(req, res, body) {
   const model = body.model
   const messages = body.messages || []
@@ -153,7 +155,8 @@ export async function handleChat(req, res, body) {
       return
     }
 
-    cancelRequest(requestId)
+    // 只在未完成时取消（兜底超时场景，scheduler 已处理 done/error/timeout）
+    if (!settled) cancelRequest(requestId)
     cleanupFiles()
 
     if (errorResult) {
@@ -172,8 +175,6 @@ export async function handleChat(req, res, body) {
     }
   }
 }
-
-const AGENT_TIMEOUT = parseInt(process.env.AGENT_TIMEOUT || '180000', 10)
 
 function json(res, status, data) {
   const body = JSON.stringify(data)

@@ -1,12 +1,11 @@
-import { readFileSync, createReadStream, writeFileSync, unlinkSync, existsSync } from 'fs'
+import { readFileSync, createReadStream, writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { randomBytes } from 'crypto'
+import { tmpdir } from 'os'
 
 const GATEWAY_HTTP_URL = (process.env.GATEWAY_URL || 'ws://gateway:26669/agent').replace('ws://', 'http://').replace('wss://', 'https://').replace('/agent', '')
 const AGENT_TOKEN = process.env.AGENT_TOKEN || 'agent-secret'
-const TEMP_DIR = '/tmp/agent-files'
-
-import { mkdirSync } from 'fs'
+const TEMP_DIR = join(tmpdir(), 'agent-files')
 try { mkdirSync(TEMP_DIR, { recursive: true }) } catch {}
 
 export async function uploadFile(localPath, prefix = 'file') {

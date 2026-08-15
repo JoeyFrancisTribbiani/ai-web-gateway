@@ -140,7 +140,7 @@ export default {
 
       // 检测增量
       if (currentText.length > lastText.length && currentText !== preText) {
-        const delta = currentText.slice(lastText.length === preText.length ? preText.length : lastText.length)
+        const delta = currentText.slice(lastText.length)
         if (delta) onChunk(delta)
         lastText = currentText
         stableCount = 0

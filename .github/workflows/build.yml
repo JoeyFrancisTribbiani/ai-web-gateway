@@ -11,7 +11,33 @@ env:
   IMAGE_PREFIX: ${{ github.repository }}
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install gateway dependencies
+        working-directory: gateway
+        run: npm ci || npm install
+
+      - name: Run gateway tests
+        working-directory: gateway
+        run: npm test
+
+      - name: Install agent dependencies
+        working-directory: agent
+        run: npm ci || npm install
+
+      - name: Run agent tests
+        working-directory: agent
+        run: npm test
+
   build-gateway:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -45,6 +71,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   build-agent:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read

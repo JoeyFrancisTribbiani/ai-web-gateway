@@ -1,9 +1,9 @@
-import { writeFileSync, unlinkSync } from 'fs'
+import { writeFileSync, unlinkSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { randomBytes } from 'crypto'
+import { tmpdir } from 'os'
 
-const TEMP_DIR = '/tmp/agent-media'
-import { mkdirSync } from 'fs'
+const TEMP_DIR = join(tmpdir(), 'agent-media')
 try { mkdirSync(TEMP_DIR, { recursive: true }) } catch {}
 
 export async function extractImageViaCanvas(page, imgUrl) {

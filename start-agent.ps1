@@ -1,0 +1,12 @@
+$env:GATEWAY_URL = "ws://localhost:26669/agent"
+$env:AGENT_TOKEN = "agent-secret"
+$env:VENDORS = "all"
+$env:CONFIG_DIR = "D:\WILLLUXE\ai-web-cdp-end\ai-web-gateway\config"
+$env:USER_DATA_DIR = "D:\WILLLUXE\ai-web-cdp-end\ai-web-gateway\agent\chrome-data"
+$env:MAX_TASKS_PER_CONTEXT = "5"
+$env:MAX_TABS = "8"
+$env:POLL_INTERVAL = "500"
+$env:STABLE_COUNT = "3"
+$env:VNC_PORT = "5900"
+Set-Location "D:\WILLLUXE\ai-web-cdp-end\ai-web-gateway\agent"
+node agent.js

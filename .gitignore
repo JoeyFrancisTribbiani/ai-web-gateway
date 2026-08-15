@@ -1,0 +1,27 @@
+# Secrets
+.server.secret
+.env
+.env.gateway
+.env.agent
+
+# Deploy scripts (local only)
+deploy_*.py
+
+# Dependencies
+gateway/node_modules/
+agent/node_modules/
+
+# Chrome data
+agent/chrome-data/
+agent/chrome-session/
+
+# Playwright
+.playwright-mcp/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

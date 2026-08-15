@@ -2,8 +2,9 @@ import { uploadFile } from './file-uploader.js'
 import { join } from 'path'
 import { randomBytes } from 'crypto'
 import { mkdirSync, unlinkSync } from 'fs'
+import { tmpdir } from 'os'
 
-const TEMP_DIR = '/tmp/agent-screenshots'
+const TEMP_DIR = join(tmpdir(), 'agent-screenshots')
 try { mkdirSync(TEMP_DIR, { recursive: true }) } catch {}
 
 export async function captureAndUpload(page, requestId) {

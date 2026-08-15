@@ -65,7 +65,8 @@ export async function handleImages(req, res, body) {
 
   if (clientDisconnected) return
 
-  cancelRequest(requestId)
+  // 只在未完成时取消（兜底超时场景，scheduler 已处理 done/error/timeout）
+  if (!settled) cancelRequest(requestId)
 
   if (errorMsg) {
     json(res, errorMsg.code, formatError(errorMsg.code, errorMsg.message))

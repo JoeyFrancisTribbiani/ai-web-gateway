@@ -326,7 +326,7 @@ export function handleAgentMessage(agentId, msg) {
     case 'video_failed': {
       clearVideoTimer(msg.taskId)
       getVideoTask(msg.taskId).then(async task => {
-        if (!task || task.status === 'cancelled' || task.status === 'completed') return
+        if (!task || task.status === 'cancelled' || task.status === 'completed' || task.status === 'failed') return
         await updateVideoTask(msg.taskId, { status: 'failed', error: msg.error, updatedAt: Date.now() })
         if (task.model) await wakeupVideoQueue(task.model)
       }).catch(() => {})
