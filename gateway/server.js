@@ -119,7 +119,26 @@ const server = http.createServer(async (req, res) => {
 })
 
 // ===== WebSocket 服务器（Agent 连接）=====
-const wss = new WebSocketServer({ server, path: '/agent', perMessageDeflate: false })
+const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false })
+
+// ===== noVNC WebSocket 代理（浏览器 → Gateway → Agent VNC）=====
+const novncWss = new WebSocketServer({ noServer: true, perMessageDeflate: false })
+
+// 统一处理 WebSocket upgrade，按路径分发
+server.on('upgrade', (req, socket, head) => {
+  const url = new URL(req.url, 'http://localhost')
+  if (url.pathname === '/agent') {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit('connection', ws, req)
+    })
+  } else if (url.pathname === '/novnc') {
+    novncWss.handleUpgrade(req, socket, head, (ws) => {
+      novncWss.emit('connection', ws, req)
+    })
+  } else {
+    socket.destroy()
+  }
+})
 
 wss.on('connection', (ws, req) => {
   // 鉴权
@@ -185,8 +204,7 @@ wss.on('connection', (ws, req) => {
   })
 })
 
-// ===== noVNC WebSocket 代理（浏览器 → Gateway → Agent VNC）=====
-const novncWss = new WebSocketServer({ server, path: '/novnc', perMessageDeflate: false })
+// noVNC 的 upgrade 由上面的 server.on('upgrade') 统一处理
 
 novncWss.on('connection', (ws, req) => {
   const url = new URL(req.url, 'http://localhost')
