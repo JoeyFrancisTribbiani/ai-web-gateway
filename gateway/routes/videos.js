@@ -53,7 +53,7 @@ export async function handleVideoStatus(req, res, taskId) {
       response.video = { url: task.videoUrl }
     }
   }
-  else if (task.status === 'generating') response.progress = task.progress
+  else if (task.status === 'generating') response.progress = String(task.progress || 0)
   else if (task.status === 'failed') response.error = task.error
 
   json(res, 200, response)
