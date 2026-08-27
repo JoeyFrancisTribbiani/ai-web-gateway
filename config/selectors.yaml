@@ -11,9 +11,7 @@ chatgpt:
   newChatButton: "a[href='/']"
   rateLimitIndicators: ["You've reached", "rate limit"]
   sendStrategy: clipboard
-  # 登录状态检测 (Agent 每 5 分钟检查)
-  # loggedOut 优先: 有登录按钮一定未登录
-  # loggedIn: 账户菜单按钮只有登录后才出现
   loginCheck:
-    loggedIn: "button[data-testid='account-menu-button']"
-    loggedOut: "button[data-testid='login-button'], button[data-testid='signup-button'], a[href*='login']"
+    # ChatGPT 改版后 account-menu-button testid 失效，改用侧边栏开关按钮（登录后主界面才有）
+    loggedIn: "button[aria-label='Open sidebar'], button[aria-label='Close sidebar'], [data-testid='close-sidebar-button']"
+    loggedOut: "button[data-testid='login-button'], button[data-testid='signup-button'], a[href*='/auth/login'], a[href*='login']"
