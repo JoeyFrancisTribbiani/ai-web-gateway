@@ -23,6 +23,7 @@ export async function startVnc(displayNum, port) {
         '-listen', '0.0.0.0',
         '-rfbport', String(port),
         '-forever', '-shared', '-noxfixes',
+        '-xkb', '-nomodtweak', '-noxrecord',
         '-passwd', password,
       ]
       vncProcess = spawn('x11vnc', args, { stdio: 'ignore' })
