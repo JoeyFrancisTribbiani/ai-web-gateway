@@ -47,7 +47,7 @@ services:
     environment:
       - GATEWAY_URL=ws://gateway:26669/agent
       - AGENT_TOKEN=${AGENT_TOKEN:-agent-secret}
-      - VENDORS=${VENDORS:-all}
+      - VENDORS=${VENDORS:-chatgpt}
       - MAX_TASKS_PER_CONTEXT=5
       - MAX_TABS=12
       - DISPLAY=:99

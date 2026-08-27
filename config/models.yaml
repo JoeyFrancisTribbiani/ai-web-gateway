@@ -18,57 +18,11 @@ models:
     taskType: chat
     description: "ChatGPT 网页端 (GPT-4o mini)"
 
-  - name: claude-sonnet-web
-    vendor: claude
-    taskType: chat
-    description: "Claude 网页端 (Sonnet)"
-
-  - name: gemini-pro-web
-    vendor: gemini
-    taskType: chat
-    description: "Gemini 网页端 (Pro)"
-
-  - name: doubao-pro-web
-    vendor: doubao
-    taskType: chat
-    description: "豆包 网页端 (Pro)"
-
   # ===== 视频分析 =====
   - name: chatgpt-web
     vendor: chatgpt
     taskType: analyze
     description: "ChatGPT 视频分析 (GPT-4o)"
-    rateLimit:
-      qps: 0.1
-      concurrency: 4
-
-  # ===== 图片生成 =====
-  - name: jimeng-image-web
-    vendor: jimeng
-    taskType: image
-    description: "即梦 图片生成"
-    rateLimit:
-      qps: 0.2
-      concurrency: 2
-
-  - name: gemini-image-web
-    vendor: gemini
-    taskType: image
-    description: "Gemini 图片生成"
-
-  # ===== 视频生成 =====
-  - name: kling-video-web
-    vendor: kling
-    taskType: video
-    description: "Kling 视频生成"
-    rateLimit:
-      qps: 0.1
-      concurrency: 4
-
-  - name: jimeng-video-web
-    vendor: jimeng
-    taskType: video
-    description: "即梦 视频生成"
     rateLimit:
       qps: 0.1
       concurrency: 4

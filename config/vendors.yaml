@@ -6,28 +6,3 @@ vendors:
     url: https://chatgpt.com
     capabilities: [chat]
     adapter: chatgpt.js
-
-  claude:
-    url: https://claude.ai
-    capabilities: [chat]
-    adapter: claude.js
-
-  gemini:
-    url: https://gemini.google.com/app
-    capabilities: [chat, image]
-    adapter: gemini.js
-
-  doubao:
-    url: https://www.doubao.com/chat
-    capabilities: [chat]
-    adapter: doubao.js
-
-  jimeng:
-    url: https://jimeng.jianying.com/ai-tool/image/generate
-    capabilities: [image, video]
-    adapter: jimeng.js
-
-  kling:
-    url: https://kling.kuaishou.com
-    capabilities: [video]
-    adapter: kling.js
