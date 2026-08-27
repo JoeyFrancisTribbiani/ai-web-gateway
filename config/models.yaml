@@ -33,6 +33,15 @@ models:
     taskType: chat
     description: "豆包 网页端 (Pro)"
 
+  # ===== 视频分析 =====
+  - name: chatgpt-web
+    vendor: chatgpt
+    taskType: analyze
+    description: "ChatGPT 视频分析 (GPT-4o)"
+    rateLimit:
+      qps: 0.1
+      concurrency: 4
+
   # ===== 图片生成 =====
   - name: jimeng-image-web
     vendor: jimeng

@@ -134,6 +134,8 @@ async function handleMessage(msg) {
       return handleImageTask(msg)
     case 'video_task':
       return handleVideoTask(msg)
+    case 'analyze_task':
+      return handleAnalyzeTask(msg)
     case 'login_mode':
       return handleLoginMode(msg)
     case 'restart':
@@ -146,6 +148,11 @@ async function handleMessage(msg) {
     case 'video_cancel':
       videoPoller.stopPolling(msg.taskId)
       break
+    case 'analyze_cancel': {
+      const ac = analyzeAborts.get(msg.taskId)
+      if (ac) ac.abort()
+      break
+    }
   }
 }
 
@@ -326,6 +333,75 @@ async function handleVideoTask(msg) {
   }
 }
 
+// 视频分析任务的 AbortController 映射（用于 analyze_cancel）
+const analyzeAborts = new Map()
+
+// ===== 视频分析任务 =====
+// 复用 video 任务的 newVideoTab 异步模型（不占用同步 currentTask），
+// 但执行 chat 逻辑：下载并上传视频 → 发送 prompt → 流式收集文本回复。
+async function handleAnalyzeTask(msg) {
+  const { taskId, prompt, vendor, inputFiles } = msg
+  const adapter = adapters[vendor]
+  if (!adapter) {
+    wsClient.send({ type: 'analyze_failed', taskId, error: `no adapter for ${vendor}` })
+    return
+  }
+
+  let page
+  try {
+    page = await chrome.newVideoTab()
+  } catch (e) {
+    wsClient.send({ type: 'analyze_failed', taskId, error: e.message })
+    return
+  }
+  const selectors = getSelectors(vendor)
+  const abortController = new AbortController()
+  analyzeAborts.set(taskId, abortController)
+
+  let localFiles = []
+  try {
+    if (inputFiles && inputFiles.length > 0) {
+      for (const f of inputFiles) {
+        const localPath = await downloadFile(f, 'input')
+        localFiles.push(localPath)
+      }
+    }
+
+    await adapter.navigate(page, selectors)
+
+    if (localFiles.length > 0 && adapter.uploadFile) {
+      for (const f of localFiles) {
+        await adapter.uploadFile(page, f, selectors)
+      }
+    }
+
+    await adapter.sendPrompt(page, prompt, selectors)
+
+    let fullText = ''
+    await adapter.streamResponse(page, (delta) => {
+      fullText += delta
+      wsClient.send({ type: 'analyze_progress', taskId, progress: 'generating' })
+    }, selectors, abortController.signal)
+
+    if (!abortController.signal.aborted) {
+      wsClient.send({ type: 'analyze_done', taskId, text: fullText })
+    } else {
+      wsClient.send({ type: 'analyze_failed', taskId, error: 'cancelled' })
+    }
+  } catch (e) {
+    try { await captureAndUpload(page, taskId) } catch {}
+    wsClient.send({ type: 'analyze_failed', taskId, error: e.message })
+  } finally {
+    analyzeAborts.delete(taskId)
+    for (const f of localFiles) cleanupLocalFile(f)
+    try { await page.close() } catch {}
+    if (chrome.shouldRestart() && videoPoller.getPollingCount() === 0) {
+      await chrome.restart()
+      await chrome.reopenSessionTabs(vendors, vendorUrls)
+    }
+  }
+}
+
 // ===== 登录模式 =====
 async function handleLoginMode(msg) {
   const { vendor } = msg
@@ -379,6 +455,7 @@ async function handleRestart() {
   if (currentAbortController) currentAbortController.abort()
   currentTask = null
   currentAbortController = null
+  for (const ac of analyzeAborts.values()) ac.abort()
   chrome.setBusy(false)
   videoPoller.stopAllPolling(true, 'Agent 重启')
   await chrome.restart()
@@ -402,6 +479,7 @@ async function handleShutdown() {
   if (currentAbortController) currentAbortController.abort()
   currentTask = null
   currentAbortController = null
+  for (const ac of analyzeAborts.values()) ac.abort()
   // 停止登录检测快速轮询
   stopLoginWatch()
   // 停止视频轮询（不通知 Gateway，Gateway 侧已自行标记 failed）

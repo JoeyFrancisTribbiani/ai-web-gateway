@@ -15,7 +15,7 @@ import { checkHeartbeats, getVncInfo, clearVncInfo } from './lib/agentPool.js'
 
 import { handleChat } from './routes/chat.js'
 import { handleImages } from './routes/images.js'
-import { handleVideoGenerate, handleVideoStatus, handleVideoCancel } from './routes/videos.js'
+import { handleVideoGenerate, handleVideoAnalyze, handleVideoStatus, handleVideoCancel } from './routes/videos.js'
 import { handleModels } from './routes/models.js'
 import { handleHealth } from './routes/health.js'
 import { handleFileUpload, handleFileDownload } from './routes/files.js'
@@ -79,7 +79,7 @@ const server = http.createServer(async (req, res) => {
 
     // ===== Agent 文件上传（AGENT_TOKEN 鉴权）=====
     if (path === '/files/upload' && method === 'POST') {
-      if (!checkAgentToken(req)) return json(res, 401, { error: 'unauthorized' })
+      if (!checkAgentToken(req) && !checkApiKey(req)) return json(res, 401, { error: 'unauthorized' })
       return await handleFileUpload(req, res)
     }
 
@@ -118,6 +118,7 @@ const server = http.createServer(async (req, res) => {
       if (path === '/v1/chat/completions' && method === 'POST') return await handleChat(req, res, body)
       if (path === '/v1/images/generations' && method === 'POST') return await handleImages(req, res, body)
       if (path === '/v1/videos/generations' && method === 'POST') return await handleVideoGenerate(req, res, body)
+      if (path === '/v1/videos/analyze' && method === 'POST') return await handleVideoAnalyze(req, res, body)
       if (path.startsWith('/v1/videos/') && path.endsWith('/cancel') && method === 'POST') {
         const taskId = path.replace('/v1/videos/', '').replace('/cancel', '')
         return await handleVideoCancel(req, res, taskId)

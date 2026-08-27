@@ -209,6 +209,58 @@ export async function scheduleVideo(taskId, { vendor, prompt, params }) {
   return { ok: true }
 }
 
+// ===== 视频分析任务调度 =====
+// 复用 video 任务的 Redis 存储与 tab 容量调度，但让 Agent 执行
+// "上传视频 + prompt → 等待 ChatGPT 文本回复" 而非视频生成。
+export async function scheduleAnalyze(taskId, { vendor, prompt, inputFiles }) {
+  if (isVendorDisabled(vendor)) {
+    return { error: 503, message: `vendor ${vendor} is disabled` }
+  }
+
+  await saveVideoTask(taskId, { status: 'queued', model: vendor, prompt, params: { type: 'analyze', inputFiles: inputFiles || [] }, createdAt: Date.now() })
+
+  const agent = findVideoAgent(vendor)
+  if (!agent) {
+    const queueTimer = setTimeout(async () => {
+      const task = await getVideoTask(taskId)
+      if (task && task.status === 'queued') {
+        await updateVideoTask(taskId, { status: 'failed', error: '排队超时', updatedAt: Date.now() })
+      }
+      videoTimers.delete(taskId + ':queue')
+    }, VIDEO_QUEUE_TIMEOUT)
+    videoTimers.set(taskId + ':queue', queueTimer)
+    return { ok: false, queued: true }
+  }
+
+  agent.activeTabs++
+  if (!agent.send({ type: 'analyze_task', taskId, prompt, inputFiles: inputFiles || [], vendor })) {
+    agent.activeTabs--
+    const queueTimer = setTimeout(async () => {
+      const task = await getVideoTask(taskId)
+      if (task && task.status === 'queued') {
+        await updateVideoTask(taskId, { status: 'failed', error: '排队超时', updatedAt: Date.now() })
+      }
+      videoTimers.delete(taskId + ':queue')
+    }, VIDEO_QUEUE_TIMEOUT)
+    videoTimers.set(taskId + ':queue', queueTimer)
+    return { ok: false, queued: true }
+  }
+  await updateVideoTask(taskId, { status: 'generating', agentId: agent.agentId, updatedAt: Date.now() })
+
+  const timer = setTimeout(async () => {
+    const task = await getVideoTask(taskId)
+    if (task && (task.status === 'generating' || task.status === 'queued')) {
+      await updateVideoTask(taskId, { status: 'failed', error: '视频分析超时', updatedAt: Date.now() })
+      const a = getAgent(agent.agentId)
+      if (a) a.send({ type: 'analyze_cancel', taskId })
+    }
+    videoTimers.delete(taskId)
+  }, VIDEO_TIMEOUT)
+  videoTimers.set(taskId, timer)
+
+  return { ok: true }
+}
+
 // 视频排队唤醒 — Agent 完成任务后检查 Redis 队列
 // video wakeup 锁：防止同一 vendor 的并发 wakeup 重复领取任务
 const wakeupLocks = new Set()
@@ -219,6 +271,7 @@ export async function wakeupVideoQueue(vendor) {
   try {
     const queuedTasks = await getVideoTaskList({ status: 'queued', vendor, page: 1, pageSize: 10 })
     for (const task of queuedTasks) {
+      if (task.params && task.params.type === 'analyze') continue
       const agent = findVideoAgent(vendor)
       if (!agent) break
 
@@ -245,6 +298,45 @@ export async function wakeupVideoQueue(vendor) {
     }
   } finally {
     wakeupLocks.delete(vendor)
+  }
+}
+
+// 视频分析排队唤醒（独立锁，不与 video 互阻）
+const analyzeWakeupLocks = new Set()
+
+export async function wakeupAnalyzeQueue(vendor) {
+  if (!vendor || analyzeWakeupLocks.has(vendor)) return
+  analyzeWakeupLocks.add(vendor)
+  try {
+    const queuedTasks = await getVideoTaskList({ status: 'queued', vendor, page: 1, pageSize: 10 })
+    for (const task of queuedTasks) {
+      if (!task.params || task.params.type !== 'analyze') continue
+      const agent = findVideoAgent(vendor)
+      if (!agent) break
+
+      agent.activeTabs++
+      if (!agent.send({ type: 'analyze_task', taskId: task.id, prompt: task.prompt, inputFiles: task.params.inputFiles || [], vendor })) {
+        agent.activeTabs--
+        break
+      }
+      await updateVideoTask(task.id, { status: 'generating', agentId: agent.agentId, updatedAt: Date.now() })
+
+      const timer = setTimeout(async () => {
+        const t = await getVideoTask(task.id)
+        if (t && (t.status === 'generating' || t.status === 'queued')) {
+          await updateVideoTask(task.id, { status: 'failed', error: '视频分析超时', updatedAt: Date.now() })
+          const a = getAgent(agent.agentId)
+          if (a) a.send({ type: 'analyze_cancel', taskId: task.id })
+        }
+        videoTimers.delete(task.id)
+      }, VIDEO_TIMEOUT)
+      videoTimers.set(task.id, timer)
+
+      const qTimer = videoTimers.get(task.id + ':queue')
+      if (qTimer) { clearTimeout(qTimer); videoTimers.delete(task.id + ':queue') }
+    }
+  } finally {
+    analyzeWakeupLocks.delete(vendor)
   }
 }
 
@@ -319,7 +411,10 @@ export function handleAgentMessage(agentId, msg) {
       getVideoTask(msg.taskId).then(async task => {
         if (!task || task.status === 'cancelled' || task.status === 'failed') return
         await updateVideoTask(msg.taskId, { status: 'completed', videoUrl: msg.videoUrl, updatedAt: Date.now() })
-        if (task.model) await wakeupVideoQueue(task.model)
+        if (task.model) {
+          await wakeupVideoQueue(task.model)
+          wakeupAnalyzeQueue(task.model).catch(() => {})
+        }
       }).catch(() => {})
       break
     }
@@ -328,7 +423,38 @@ export function handleAgentMessage(agentId, msg) {
       getVideoTask(msg.taskId).then(async task => {
         if (!task || task.status === 'cancelled' || task.status === 'completed' || task.status === 'failed') return
         await updateVideoTask(msg.taskId, { status: 'failed', error: msg.error, updatedAt: Date.now() })
-        if (task.model) await wakeupVideoQueue(task.model)
+        if (task.model) {
+          await wakeupVideoQueue(task.model)
+          wakeupAnalyzeQueue(task.model).catch(() => {})
+        }
+      }).catch(() => {})
+      break
+    }
+    case 'analyze_progress': {
+      updateVideoTask(msg.taskId, { progress: msg.progress, status: 'generating', updatedAt: Date.now() }).catch(() => {})
+      break
+    }
+    case 'analyze_done': {
+      clearVideoTimer(msg.taskId)
+      getVideoTask(msg.taskId).then(async task => {
+        if (!task || task.status === 'cancelled' || task.status === 'failed') return
+        await updateVideoTask(msg.taskId, { status: 'completed', result: msg.text, updatedAt: Date.now() })
+        if (task.model) {
+          await wakeupAnalyzeQueue(task.model)
+          wakeupVideoQueue(task.model).catch(() => {})
+        }
+      }).catch(() => {})
+      break
+    }
+    case 'analyze_failed': {
+      clearVideoTimer(msg.taskId)
+      getVideoTask(msg.taskId).then(async task => {
+        if (!task || task.status === 'cancelled' || task.status === 'completed' || task.status === 'failed') return
+        await updateVideoTask(msg.taskId, { status: 'failed', error: msg.error, updatedAt: Date.now() })
+        if (task.model) {
+          await wakeupAnalyzeQueue(task.model)
+          wakeupVideoQueue(task.model).catch(() => {})
+        }
       }).catch(() => {})
       break
     }
@@ -370,6 +496,7 @@ export async function handleAgentDisconnect(agentId) {
   for (const v of vendors) {
     wakeupSyncQueue(v)
     wakeupVideoQueue(v).catch(() => {})
+    wakeupAnalyzeQueue(v).catch(() => {})
   }
 }
 
