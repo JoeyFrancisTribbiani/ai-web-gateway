@@ -22,6 +22,7 @@ export async function handleAdmin(req, res, path, method, body, ip) {
   if (path === '/admin/login-status' && method === 'GET') return adminLoginStatus(res)
   if (path.startsWith('/admin/login/') && method === 'POST') return adminLogin(req, res, path)
   if (path.startsWith('/admin/vnc/') && method === 'GET') return adminVncStatus(res, path)
+  if (path.startsWith('/admin/vnc/') && path.endsWith('/open') && method === 'POST') return adminOpenVnc(req, res, path)
   if (path === '/admin/config/selectors/history' && method === 'GET') return adminSelectorHistory(res)
   if (path.startsWith('/admin/config/selectors/history/') && method === 'GET') return adminSelectorVersion(res, path)
   if (path.startsWith('/admin/config/selectors/rollback/') && method === 'POST') return adminSelectorRollback(res, path, ip)
@@ -136,6 +137,14 @@ function adminVncStatus(res, path) {
   const vnc = getVncInfo(agentId)
   if (!vnc) return json(res, 200, { available: false })
   json(res, 200, { available: true, host: vnc.host, port: vnc.port, password: vnc.password })
+}
+
+function adminOpenVnc(req, res, path) {
+  const agentId = path.split('/')[3]
+  const agent = getAgent(agentId)
+  if (!agent) return json(res, 404, { error: 'agent not found' })
+  agent.send({ type: 'login_mode', vendor: '__vnc_viewer__' })
+  json(res, 200, { ok: true, novnc: true, agentId })
 }
 
 function adminGetConfig(res, path) {

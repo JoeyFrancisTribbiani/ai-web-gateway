@@ -114,7 +114,7 @@ async function loadAgents() {
     let html = '<div class="card"><table><tr><th>Agent ID</th><th>状态</th><th>厂商</th><th>Tabs</th><th>视频轮询</th><th>任务数</th><th>内存</th><th>当前任务</th><th>操作</th></tr>';
   for (const a of agents) {
     const badge = a.isOnline ? (a.status.includes('idle') ? 'badge-green' : 'badge-yellow') : 'badge-red';
-    html += `<tr><td>${a.agentId}</td><td><span class="badge ${badge}">${a.status}</span></td><td>${a.vendors.join(', ')}</td><td>${a.activeTabs}</td><td>${a.videoPolling}</td><td>${a.taskCount}</td><td>${a.resources?.chromeMemoryMB || 0}MB</td><td>${a.currentTask ? a.currentTask.vendor + ' ' + a.currentTask.model : '-'}</td><td><button class="btn btn-primary btn-sm" onclick="restartAgent('${a.agentId}')">重启</button></td></tr>`;
+    html += `<tr><td>${a.agentId}</td><td><span class="badge ${badge}">${a.status}</span></td><td>${a.vendors.join(', ')}</td><td>${a.activeTabs}</td><td>${a.videoPolling}</td><td>${a.taskCount}</td><td>${a.resources?.chromeMemoryMB || 0}MB</td><td>${a.currentTask ? a.currentTask.vendor + ' ' + a.currentTask.model : '-'}</td><td><button class="btn btn-primary btn-sm" onclick="restartAgent('${a.agentId}')">重启</button> <button class="btn btn-sm" style="background:#6366f1;color:#fff;" onclick="openVncViewer('${a.agentId}')">VNC</button></td></tr>`;
   }
   html += '</table></div>';
   el.innerHTML = html;
@@ -243,7 +243,13 @@ async function loginAgent(agentId, vendor) {
   }
 }
 
-// ===== noVNC 内嵌登录 =====
+// ===== VNC 查看器（从 Agent 列表打开，不关联厂商）=====
+async function openVncViewer(agentId) {
+  // 触发 Agent 启动 VNC
+  await api(`/admin/vnc/${agentId}/open`, 'POST');
+  // 打开 noVNC 模态框
+  openNovnc(agentId, 'Chrome 画面');
+}
 let novncPolling = false;
 
 async function openNovnc(agentId, vendor) {
@@ -261,7 +267,7 @@ async function openNovnc(agentId, vendor) {
       <span style="color:#64748b;margin-left:12px;">${agentId} / ${vendor}</span>
       <button class="btn btn-danger btn-sm" style="margin-left:12px;" onclick="closeNovnc()">关闭</button>
     </div>
-    <div id="novnc-screen" style="width:min(1280px,95vw);height:min(800px,85vh);background:#000;border:2px solid #334155;border-radius:8px;overflow:hidden;"></div>
+    <div id="novnc-screen" style="width:1280px;height:800px;background:#000;border:2px solid #334155;border-radius:8px;overflow:auto;max-width:95vw;max-height:85vh;"></div>
   `;
   modal.style.display = 'flex';
 
@@ -305,8 +311,7 @@ async function connectNovnc(agentId) {
 
   const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/novnc?token=${encodeURIComponent(apiKey)}&agent=${encodeURIComponent(agentId)}`;
   const rfb = new RFB(screen, wsUrl);
-  rfb.resizeSession = true;
-  rfb.scaleViewport = true;
+  rfb.scaleViewport = false;
   window._novncRfb = rfb;
 
   rfb.addEventListener('connect', () => {

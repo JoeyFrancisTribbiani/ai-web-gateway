@@ -405,7 +405,8 @@ async function handleAnalyzeTask(msg) {
 // ===== 登录模式 =====
 async function handleLoginMode(msg) {
   const { vendor } = msg
-  vncManager.setVendor(vendor)
+  const isVncViewer = vendor === '__vnc_viewer__'
+  if (!isVncViewer) vncManager.setVendor(vendor)
 
   // 开启 VNC (固定端口，同一时间只登录一个厂商)
   const vncPort = parseInt(process.env.VNC_PORT || '5900', 10)
@@ -422,7 +423,8 @@ async function handleLoginMode(msg) {
   })
 
   // 启动登录检测快速轮询 (VNC 期间每 10s 检查一次，检测到登录成功立即关 VNC)
-  if (ok) startLoginWatch(vendor)
+  // VNC 查看模式不启动登录检测，用户只是看画面
+  if (ok && !isVncViewer) startLoginWatch(vendor)
 }
 
 // VNC 登录期间的快速检测定时器
