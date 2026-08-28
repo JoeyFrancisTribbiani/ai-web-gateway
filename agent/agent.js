@@ -339,6 +339,35 @@ const analyzeAborts = new Map()
 // ===== 视频分析任务 =====
 // 复用 video 任务的 newVideoTab 异步模型（不占用同步 currentTask），
 // 但执行 chat 逻辑：下载并上传视频 → 发送 prompt → 流式收集文本回复。
+// 回复文本中提取 JSON（参考 feedaccount 分段脚本提取逻辑）。
+function extractJsonFromText(text) {
+  if (!text) return null
+  let jsonStr = null
+  // 1. markdown 代码块: ```json ... ```
+  const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/)
+  if (codeBlockMatch) {
+    jsonStr = codeBlockMatch[1].trim()
+  } else if (text.trim().startsWith('{')) {
+    // 2. 整个回复就是 JSON
+    jsonStr = text.trim()
+  } else {
+    // 3. 从文本中找第一个 { 到最后一个 }
+    const firstBrace = text.indexOf('{')
+    const lastBrace = text.lastIndexOf('}')
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      jsonStr = text.substring(firstBrace, lastBrace + 1)
+    }
+  }
+  if (jsonStr) {
+    try {
+      return JSON.parse(jsonStr)
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
 async function handleAnalyzeTask(msg) {
   const { taskId, prompt, vendor, inputFiles } = msg
   const adapter = adapters[vendor]
@@ -384,7 +413,9 @@ async function handleAnalyzeTask(msg) {
     }, selectors, abortController.signal)
 
     if (!abortController.signal.aborted) {
-      wsClient.send({ type: 'analyze_done', taskId, text: fullText })
+      // 提取 JSON (参考 feedaccount 分段脚本提取逻辑)
+      const jsonData = extractJsonFromText(fullText)
+      wsClient.send({ type: 'analyze_done', taskId, text: fullText, json: jsonData })
     } else {
       wsClient.send({ type: 'analyze_failed', taskId, error: 'cancelled' })
     }

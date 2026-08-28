@@ -33,6 +33,7 @@ export default {
       'button[aria-label*="attach"]',
     ]
 
+    let uploaded = false
     for (const sel of plusBtnSelectors) {
       try {
         if (await page.locator(sel).count() > 0) {
@@ -40,17 +41,47 @@ export default {
           await page.click(sel, { timeout: 5000 })
           const fileChooser = await fileChooserPromise
           await fileChooser.setFiles(filePath)
-          await page.waitForTimeout(2000)
-          return
+          await page.waitForTimeout(3000)
+          uploaded = true
+          break
         }
       } catch {}
     }
 
     // 方式2: 直接 setInputFiles
-    const fileInput = page.locator('input#upload-files, input[type="file"]').first()
-    if (await fileInput.count() > 0) {
-      await fileInput.setInputFiles(filePath)
-      await page.waitForTimeout(2000)
+    if (!uploaded) {
+      const fileInput = page.locator('input#upload-files, input[type="file"]').first()
+      if (await fileInput.count() > 0) {
+        try {
+          // 记录上传前的 file-tile 数量
+          const tilesBefore = await page.evaluate(() => document.querySelectorAll('[class*="file-tile"]').length)
+          await fileInput.setInputFiles(filePath)
+          await page.waitForTimeout(3000)
+          const tilesAfter = await page.evaluate(() => document.querySelectorAll('[class*="file-tile"]').length)
+          if (tilesAfter > tilesBefore) {
+            uploaded = true
+          }
+        } catch {}
+      }
+    }
+
+    // 等待文件上传完成 (file-tile spinner 消失)
+    if (uploaded) {
+      for (let wait = 0; wait < 900; wait++) { // 最多等15分钟
+        const loadingState = await page.evaluate(() => {
+          const tiles = document.querySelectorAll('[class*="file-tile"]')
+          for (const tile of tiles) {
+            const btn = tile.querySelector('button')
+            if (btn && btn.className.includes('cursor-wait')) return { loading: true }
+            if (tile.className.includes('cursor-wait')) return { loading: true }
+          }
+          return { loading: false }
+        })
+        if (!loadingState.loading) {
+          break
+        }
+        await page.waitForTimeout(1000)
+      }
     }
   },
 
@@ -107,36 +138,86 @@ export default {
     }
   },
 
+  // 获取最新 assistant 消息文本 (多选择器 fallback, 参考 feedaccount getLastAssistantText)
+  async getLastAssistantText(page) {
+    return await page.evaluate(() => {
+      const selectors = [
+        '[data-message-author-role="assistant"]',
+        'div[class*="markdown"]',
+        '[data-testid^="conversation-turn-"]',
+      ]
+      for (const sel of selectors) {
+        const elements = document.querySelectorAll(sel)
+        if (elements.length > 0) return elements[elements.length - 1].textContent || ''
+      }
+      return ''
+    })
+  },
+
+  // 检测 ChatGPT 是否还在生成 (多重检测, 参考 feedaccount isStillGenerating)
+  async isStillGenerating(page) {
+    return await page.evaluate(() => {
+      // 方式1: 标准 stop-button 存在且可见
+      const stopBtns = document.querySelectorAll('button[data-testid="stop-button"]')
+      for (const btn of stopBtns) { if (btn.offsetParent !== null) return true }
+
+      // 方式2: composer-submit-button 的 aria-label 判断
+      const submitBtn = document.querySelector('button[class*="composer-submit-button"]')
+      if (submitBtn) {
+        const aria = (submitBtn.getAttribute('aria-label') || '').toLowerCase()
+        if (aria.includes('停止') || aria.includes('stop') || aria.includes('中断') || aria.includes('cancel')) return true
+        if (aria.includes('发送') || aria.includes('send') || aria.includes('语音') || aria.includes('voice')) return false
+      }
+
+      // 方式3: 其他 stop 相关按钮
+      const allStopLike = document.querySelectorAll('button[class*="stop"], button[data-testid*="stop"]')
+      for (const btn of allStopLike) { if (btn.offsetParent !== null) return true }
+
+      return false
+    })
+  },
+
+  // 检测 ChatGPT 错误提示
+  isErrorText(text) {
+    if (!text) return false
+    const errorKeywords = ['出了点问题', '请重试', 'Something went wrong', 'try again', '网络错误', 'network error']
+    const lower = text.toLowerCase()
+    return errorKeywords.some(kw => lower.includes(kw.toLowerCase()))
+  },
+
   async streamResponse(page, onChunk, selectors, signal) {
-    const assistantSel = selectors.assistantMessage || '[data-message-author-role="assistant"]'
-    const stopSelectors = selectors.stopButton
-      ? selectors.stopButton.split(',').map(s => s.trim())
-      : ['button[data-testid="stop-button"]', 'button[aria-label="Stop"]']
+    const pollInterval = parseInt(process.env.POLL_INTERVAL || '500', 10)
+    const stableThreshold = 3
+    const startTimeout = 60000 // 等待回复开始, 最多 60s
 
     // 记录发送前的文本
-    let preText = ''
-    try {
-      const elements = await page.locator(assistantSel).all()
-      if (elements.length > 0) {
-        preText = (await elements[elements.length - 1].textContent()) || ''
-      }
-    } catch {}
+    const preText = await this.getLastAssistantText(page)
 
-    // 等待新回复开始
+    // ===== 阶段1: 等待新回复开始 =====
+    let responseStarted = false
+    const startTime = Date.now()
+    while (Date.now() - startTime < startTimeout) {
+      if (signal?.aborted) return
+      const currentText = await this.getLastAssistantText(page)
+      if (currentText && currentText !== preText) { responseStarted = true; break }
+      if (await this.isStillGenerating(page)) { responseStarted = true; break }
+      await page.waitForTimeout(pollInterval)
+    }
+    if (!responseStarted) {
+      // 未检测到新回复开始, 但不报错, 继续走稳定计数 (可能回复极快已结束)
+    }
+
+    // ===== 阶段2: 收集回复 + 等待稳定 =====
     let lastText = preText
     let stableCount = 0
-    const stableThreshold = 3
-    const pollInterval = parseInt(process.env.POLL_INTERVAL || '500', 10)
 
     while (!signal?.aborted) {
-      // 获取最新 assistant 消息
-      let currentText = ''
-      try {
-        const elements = await page.locator(assistantSel).all()
-        if (elements.length > 0) {
-          currentText = (await elements[elements.length - 1].textContent()) || ''
-        }
-      } catch {}
+      const currentText = await this.getLastAssistantText(page)
+
+      // 检测 ChatGPT 错误提示
+      if (this.isErrorText(currentText) && currentText !== preText) {
+        throw new Error(`[CHATGPT_ERROR] ${currentText.slice(0, 200)}`)
+      }
 
       // 检测增量
       if (currentText.length > lastText.length && currentText !== preText) {
@@ -152,17 +233,16 @@ export default {
       }
 
       // 检查是否还在生成
-      let stillGenerating = false
-      for (const sel of stopSelectors) {
-        try {
-          const count = await page.locator(sel).count()
-          if (count > 0) { stillGenerating = true; break }
-        } catch {}
-      }
+      const stillGenerating = await this.isStillGenerating(page)
 
-      // 生成完成: 停止按钮消失 + 文本稳定
+      // 生成完成: 不在生成 + 文本稳定 + 有新回复
       if (!stillGenerating && stableCount >= stableThreshold && currentText && currentText !== preText) {
-        break
+        // 短回复需要更多稳定次数
+        if (currentText.length < 100 && stableCount < 10) {
+          // 继续等待
+        } else {
+          break
+        }
       }
 
       // 检查限额

@@ -49,6 +49,7 @@ export async function handleVideoStatus(req, res, taskId) {
   if (task.status === 'completed') {
     if (task.params && task.params.type === 'analyze' && task.result) {
       response.result = task.result
+      if (task.json) response.json = task.json
     } else if (task.videoUrl) {
       response.video = { url: task.videoUrl }
     }
