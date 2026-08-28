@@ -267,7 +267,7 @@ async function openNovnc(agentId, vendor) {
       <span style="color:#64748b;margin-left:12px;">${agentId} / ${vendor}</span>
       <button class="btn btn-danger btn-sm" style="margin-left:12px;" onclick="closeNovnc()">关闭</button>
     </div>
-    <div id="novnc-screen" style="width:1280px;height:800px;background:#000;border:2px solid #334155;border-radius:8px;overflow:auto;max-width:95vw;max-height:85vh;"></div>
+    <div id="novnc-screen" style="width:1280px;height:800px;background:#000;border:2px solid #334155;border-radius:8px;overflow:auto;max-width:95vw;max-height:85vh;touch-action:auto;"></div>
   `;
   modal.style.display = 'flex';
 
@@ -313,6 +313,39 @@ async function connectNovnc(agentId) {
   const rfb = new RFB(screen, wsUrl);
   rfb.scaleViewport = false;
   window._novncRfb = rfb;
+
+  // 手机触摸滚动支持：noVNC canvas 默认拦截所有 touch 事件
+  // 单指滑动 → 滚动外层容器；双指 → 发送给 VNC（鼠标/缩放）
+  // canvas 是 RFB 异步创建的，需要等它出现
+  const setupTouchScroll = () => {
+    const canvas = screen.querySelector('canvas');
+    if (!canvas) {
+      setTimeout(setupTouchScroll, 500);
+      return;
+    }
+    canvas.style.touchAction = 'pan-x pan-y';
+    let touchStartY = 0, touchStartX = 0;
+    canvas.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        touchStartY = e.touches[0].clientY;
+        touchStartX = e.touches[0].clientX;
+      }
+    }, { passive: true });
+    canvas.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 1) {
+        // 单指：滚动外层容器
+        const deltaY = touchStartY - e.touches[0].clientY;
+        const deltaX = touchStartX - e.touches[0].clientX;
+        screen.scrollTop += deltaY;
+        screen.scrollLeft += deltaX;
+        touchStartY = e.touches[0].clientY;
+        touchStartX = e.touches[0].clientX;
+        e.preventDefault();
+      }
+      // 双指不拦截，让 noVNC 处理
+    }, { passive: false });
+  };
+  setupTouchScroll();
 
   rfb.addEventListener('connect', () => {
     document.getElementById('novnc-status').textContent = 'VNC 已连接，请在下方窗口操作';

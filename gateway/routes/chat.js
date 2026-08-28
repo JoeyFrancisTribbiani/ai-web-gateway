@@ -13,6 +13,7 @@ export async function handleChat(req, res, body) {
   const model = body.model
   const messages = body.messages || []
   const stream = body.stream !== false
+  console.log(`[chat] model=${model} messages=${messages.length} stream=${stream}`)
 
   const modelInfo = getModel(model)
   if (!modelInfo) return json(res, 400, formatError(400, `model not found: ${model}`))
@@ -74,6 +75,7 @@ export async function handleChat(req, res, body) {
         })
         const latency = Date.now() - startTime
         recordRequest(vendor, true, latency)
+        console.log(`[chat] requestId=${requestId} done: ${latency}ms`)
         addTaskHistory({ requestId, model, vendor, taskType: 'chat', status: 'success', latency, ts: Date.now() })
         cleanupFiles()
       },
@@ -84,6 +86,7 @@ export async function handleChat(req, res, body) {
           res.write(formatSSEDone())
         })
         recordRequest(vendor, false, Date.now() - startTime)
+        console.log(`[chat] requestId=${requestId} failed: ${message}`)
         addTaskHistory({ requestId, model, vendor, taskType: 'chat', status: 'failed', error: message, latency: Date.now() - startTime, ts: Date.now() })
         cleanupFiles()
       },
@@ -93,6 +96,7 @@ export async function handleChat(req, res, body) {
           res.write(formatSSEDone())
         })
         recordRequest(vendor, false, Date.now() - startTime)
+        console.log(`[chat] requestId=${requestId} timeout`)
         cleanupFiles()
       },
     })
@@ -104,6 +108,7 @@ export async function handleChat(req, res, body) {
         res.write(formatSSE(formatError(result.error, result.message)))
         res.write(formatSSEDone())
       })
+      console.log(`[chat] requestId=${requestId} dispatch failed: ${result.message}`)
       cleanupFiles()
     }
   } else {
@@ -132,6 +137,7 @@ export async function handleChat(req, res, body) {
         json(res, result.error, formatError(result.error, result.message))
       }
       recordRequest(vendor, false, Date.now() - startTime)
+      console.log(`[chat] requestId=${requestId} dispatch failed: ${result.message}`)
       addTaskHistory({ requestId, model, vendor, taskType: 'chat', status: 'failed', error: result.message, latency: Date.now() - startTime, ts: Date.now() })
       return
     }
@@ -162,15 +168,18 @@ export async function handleChat(req, res, body) {
     if (errorResult) {
       json(res, errorResult.code, formatError(errorResult.code, errorResult.message))
       recordRequest(vendor, false, Date.now() - startTime)
+      console.log(`[chat] requestId=${requestId} failed: ${errorResult.message}`)
       addTaskHistory({ requestId, model, vendor, taskType: 'chat', status: 'failed', error: errorResult.message, latency: Date.now() - startTime, ts: Date.now() })
     } else if (fullText) {
       json(res, 200, formatChatCompletion(model, fullText))
       const latency = Date.now() - startTime
       recordRequest(vendor, true, latency)
+      console.log(`[chat] requestId=${requestId} done: ${latency}ms`)
       addTaskHistory({ requestId, model, vendor, taskType: 'chat', status: 'success', latency, ts: Date.now() })
     } else {
       json(res, 500, formatError(500, '无回复内容'))
       recordRequest(vendor, false, Date.now() - startTime)
+      console.log(`[chat] requestId=${requestId} failed: 无回复内容`)
       addTaskHistory({ requestId, model, vendor, taskType: 'chat', status: 'failed', error: '无回复', latency: Date.now() - startTime, ts: Date.now() })
     }
   }

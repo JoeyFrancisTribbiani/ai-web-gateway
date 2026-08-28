@@ -16,9 +16,11 @@ export async function handleVideoGenerate(req, res, body) {
 
   const taskId = 'task-' + randomBytes(8).toString('hex')
   const vendor = modelInfo.vendor
+  console.log(`[video] taskId=${taskId} model=${model} vendor=${vendor} prompt=${prompt.slice(0, 80)}...`)
 
   const result = await scheduleVideo(taskId, { vendor, prompt, params })
   if (result.error) return json(res, result.error, formatError(result.error, result.message))
+  console.log(`[video] taskId=${taskId} scheduled, status=${result.queued ? 'queued' : 'generating'}`)
 
   json(res, 200, { id: taskId, status: result.queued ? 'queued' : 'generating', model })
 }
@@ -34,9 +36,11 @@ export async function handleVideoAnalyze(req, res, body) {
 
   const taskId = 'task-' + randomBytes(8).toString('hex')
   const vendor = modelInfo.vendor
+  console.log(`[analyze] taskId=${taskId} model=${model} vendor=${vendor} files=${inputFiles.length} prompt=${prompt.slice(0, 80)}...`)
 
   const result = await scheduleAnalyze(taskId, { vendor, prompt, inputFiles })
   if (result.error) return json(res, result.error, formatError(result.error, result.message))
+  console.log(`[analyze] taskId=${taskId} scheduled, status=${result.queued ? 'queued' : 'generating'}`)
 
   json(res, 200, { id: taskId, status: result.queued ? 'queued' : 'generating', model })
 }

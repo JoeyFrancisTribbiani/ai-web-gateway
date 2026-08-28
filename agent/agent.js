@@ -159,13 +159,16 @@ async function handleMessage(msg) {
 // ===== 对话任务 =====
 async function handleChatTask(msg) {
   const { requestId, prompt, vendor, inputFiles } = msg
+  console.log(`[chat] requestId=${requestId} vendor=${vendor} files=${inputFiles?.length || 0} prompt=${prompt?.slice(0, 80)}...`)
   if (currentTask) {
+    console.log(`[chat] requestId=${requestId} rejected: agent busy (current=${currentTask.requestId})`)
     wsClient.send({ type: 'error', requestId, code: 503, message: 'agent busy' })
     return
   }
   const adapter = adapters[vendor]
   const page = chrome.getSessionTab(vendor)
   if (!adapter || !page) {
+    console.log(`[chat] requestId=${requestId} failed: no adapter or page for ${vendor}`)
     wsClient.send({ type: 'error', requestId, code: 500, message: `no adapter or page for ${vendor}` })
     return
   }
@@ -178,39 +181,46 @@ async function handleChatTask(msg) {
 
   let localFiles = []
   try {
-    // 下载请求文件
     if (inputFiles && inputFiles.length > 0) {
       for (const f of inputFiles) {
+        console.log(`[chat] requestId=${requestId} downloading file: ${f.url?.slice(0, 60)}`)
         const localPath = await downloadFile(f, 'input')
         localFiles.push(localPath)
       }
     }
 
-    // 导航到新对话
+    console.log(`[chat] requestId=${requestId} navigating to ${vendor}`)
     await adapter.navigate(page, selectors)
 
-    // 上传文件
     if (localFiles.length > 0 && adapter.uploadFile) {
       for (const f of localFiles) {
+        console.log(`[chat] requestId=${requestId} uploading file: ${f}`)
         await adapter.uploadFile(page, f, selectors)
+        console.log(`[chat] requestId=${requestId} file uploaded: ${f}`)
       }
     }
 
-    // 发送 prompt
+    console.log(`[chat] requestId=${requestId} sending prompt (${prompt?.length || 0} chars)`)
     await adapter.sendPrompt(page, prompt, selectors)
+    console.log(`[chat] requestId=${requestId} prompt sent, waiting for response`)
 
-    // 流式获取回复
+    const responseStartTime = Date.now()
+    let totalChars = 0
     await adapter.streamResponse(page, (delta) => {
+      totalChars += delta.length
       wsClient.send({ type: 'delta', requestId, text: delta })
     }, selectors, currentAbortController.signal)
+    console.log(`[chat] requestId=${requestId} response complete: ${totalChars} chars, ${Date.now() - responseStartTime}ms`)
 
-    // 检查是否被 cancel
     if (!currentAbortController.signal.aborted) {
+      console.log(`[chat] requestId=${requestId} done`)
       wsClient.send({ type: 'done', requestId })
     } else {
+      console.log(`[chat] requestId=${requestId} cancelled`)
       wsClient.send({ type: 'error', requestId, code: 499, message: 'cancelled' })
     }
   } catch (e) {
+    console.log(`[chat] requestId=${requestId} error: ${e.message}`)
     const screenshotUrl = await captureAndUpload(page, requestId)
     const code = e.message.includes('RATE_LIMIT') || e.message.includes('限额') || e.message.includes('余额') ? 429 : 500
     wsClient.send({ type: 'error', requestId, code, message: e.message, screenshotUrl })
@@ -230,13 +240,16 @@ async function handleChatTask(msg) {
 // ===== 图片任务 =====
 async function handleImageTask(msg) {
   const { requestId, prompt, params, vendor } = msg
+  console.log(`[image] requestId=${requestId} vendor=${vendor} prompt=${prompt?.slice(0, 80)}...`)
   if (currentTask) {
+    console.log(`[image] requestId=${requestId} rejected: agent busy`)
     wsClient.send({ type: 'error', requestId, code: 503, message: 'agent busy' })
     return
   }
   const adapter = adapters[vendor]
   const page = chrome.getSessionTab(vendor)
   if (!adapter || !page) {
+    console.log(`[image] requestId=${requestId} failed: no adapter or page for ${vendor}`)
     wsClient.send({ type: 'error', requestId, code: 500, message: `no adapter or page for ${vendor}` })
     return
   }
@@ -247,11 +260,16 @@ async function handleImageTask(msg) {
   const selectors = getSelectors(vendor)
 
   try {
+    console.log(`[image] requestId=${requestId} navigating to ${vendor}`)
     await adapter.navigate(page, selectors)
     if (adapter.setParams && params) await adapter.setParams(page, params, selectors)
+    console.log(`[image] requestId=${requestId} sending prompt`)
     await adapter.sendPrompt(page, prompt, selectors)
+    console.log(`[image] requestId=${requestId} prompt sent, waiting for images`)
 
+    const imageStartTime = Date.now()
     const localPaths = await adapter.waitForImages(page, selectors)
+    console.log(`[image] requestId=${requestId} images generated: ${localPaths.length}, ${Date.now() - imageStartTime}ms`)
 
     // 上传图片到 Gateway
     const imageUrls = []
@@ -260,9 +278,10 @@ async function handleImageTask(msg) {
       imageUrls.push(url)
       cleanupLocalFile(p)
     }
-
+    console.log(`[image] requestId=${requestId} done, ${imageUrls.length} images uploaded`)
     wsClient.send({ type: 'image_result', requestId, imageUrls })
   } catch (e) {
+    console.log(`[image] requestId=${requestId} error: ${e.message}`)
     const screenshotUrl = await captureAndUpload(page, requestId)
     const code = e.message.includes('RATE_LIMIT') || e.message.includes('余额') ? 429 : 500
     wsClient.send({ type: 'error', requestId, code, message: e.message, screenshotUrl })
@@ -279,27 +298,32 @@ async function handleImageTask(msg) {
 // ===== 视频任务 =====
 async function handleVideoTask(msg) {
   const { taskId, prompt, params, vendor } = msg
+  console.log(`[video] taskId=${taskId} vendor=${vendor} prompt=${prompt?.slice(0, 80)}...`)
   const adapter = adapters[vendor]
   if (!adapter) {
+    console.log(`[video] taskId=${taskId} failed: no adapter for ${vendor}`)
     wsClient.send({ type: 'video_failed', taskId, error: `no adapter for ${vendor}` })
     return
   }
 
-  // 开新标签页（在 try 内，异常能回报 Gateway）
   let page
   try {
     page = await chrome.newVideoTab()
+    console.log(`[video] taskId=${taskId} new tab opened`)
   } catch (e) {
+    console.log(`[video] taskId=${taskId} tab open failed: ${e.message}`)
     wsClient.send({ type: 'video_failed', taskId, error: e.message })
     return
   }
   const selectors = getSelectors(vendor)
 
   try {
-    // 提交生成
+    console.log(`[video] taskId=${taskId} navigating to ${vendor}`)
     await adapter.navigate(page, selectors)
     if (adapter.setParams && params) await adapter.setParams(page, params, selectors)
+    console.log(`[video] taskId=${taskId} submitting generation`)
     await adapter.submitGeneration(page, prompt, selectors)
+    console.log(`[video] taskId=${taskId} submitted, starting background polling`)
 
     // 确认提交成功
     wsClient.send({ type: 'video_submitted', requestId: taskId, taskId })
@@ -309,16 +333,20 @@ async function handleVideoTask(msg) {
       // onDone
       async (taskId, videoPath) => {
         try {
+          console.log(`[video] taskId=${taskId} done, uploading video`)
           const videoUrl = await uploadFile(videoPath, 'video')
+          console.log(`[video] taskId=${taskId} uploaded: ${videoUrl}`)
           wsClient.send({ type: 'video_done', taskId, videoUrl })
           cleanupLocalFile(videoPath)
         } catch (e) {
+          console.log(`[video] taskId=${taskId} upload failed: ${e.message}`)
           wsClient.send({ type: 'video_failed', taskId, error: `视频上传失败: ${e.message}` })
         }
         try { await page.close() } catch {}
       },
       // onFailed
       (taskId, error) => {
+        console.log(`[video] taskId=${taskId} failed: ${error}`)
         wsClient.send({ type: 'video_failed', taskId, error })
         try { Promise.resolve(page.close()).catch(() => {}) } catch {}
       },
@@ -328,6 +356,7 @@ async function handleVideoTask(msg) {
       }
     )
   } catch (e) {
+    console.log(`[video] taskId=${taskId} error: ${e.message}`)
     wsClient.send({ type: 'video_failed', taskId, error: e.message })
     try { await page.close() } catch {}
   }
@@ -370,8 +399,10 @@ function extractJsonFromText(text) {
 
 async function handleAnalyzeTask(msg) {
   const { taskId, prompt, vendor, inputFiles } = msg
+  console.log(`[analyze] taskId=${taskId} vendor=${vendor} files=${inputFiles?.length || 0} prompt=${prompt?.slice(0, 80)}...`)
   const adapter = adapters[vendor]
   if (!adapter) {
+    console.log(`[analyze] taskId=${taskId} failed: no adapter for ${vendor}`)
     wsClient.send({ type: 'analyze_failed', taskId, error: `no adapter for ${vendor}` })
     return
   }
@@ -379,7 +410,9 @@ async function handleAnalyzeTask(msg) {
   let page
   try {
     page = await chrome.newVideoTab()
+    console.log(`[analyze] taskId=${taskId} new tab opened`)
   } catch (e) {
+    console.log(`[analyze] taskId=${taskId} tab open failed: ${e.message}`)
     wsClient.send({ type: 'analyze_failed', taskId, error: e.message })
     return
   }
@@ -391,35 +424,47 @@ async function handleAnalyzeTask(msg) {
   try {
     if (inputFiles && inputFiles.length > 0) {
       for (const f of inputFiles) {
+        console.log(`[analyze] taskId=${taskId} downloading file: ${f.url?.slice(0, 60)}`)
         const localPath = await downloadFile(f, 'input')
         localFiles.push(localPath)
       }
+      console.log(`[analyze] taskId=${taskId} ${localFiles.length} files downloaded`)
     }
 
+    console.log(`[analyze] taskId=${taskId} navigating to ${vendor}`)
     await adapter.navigate(page, selectors)
 
     if (localFiles.length > 0 && adapter.uploadFile) {
       for (const f of localFiles) {
+        console.log(`[analyze] taskId=${taskId} uploading file: ${f}`)
         await adapter.uploadFile(page, f, selectors)
+        console.log(`[analyze] taskId=${taskId} file uploaded: ${f}`)
       }
     }
 
+    console.log(`[analyze] taskId=${taskId} sending prompt (${prompt?.length || 0} chars)`)
     await adapter.sendPrompt(page, prompt, selectors)
+    console.log(`[analyze] taskId=${taskId} prompt sent, waiting for response`)
 
     let fullText = ''
+    const responseStartTime = Date.now()
     await adapter.streamResponse(page, (delta) => {
       fullText += delta
       wsClient.send({ type: 'analyze_progress', taskId, progress: 'generating' })
     }, selectors, abortController.signal)
+    console.log(`[analyze] taskId=${taskId} response complete: ${fullText.length} chars, ${Date.now() - responseStartTime}ms`)
 
     if (!abortController.signal.aborted) {
       // 提取 JSON (参考 feedaccount 分段脚本提取逻辑)
       const jsonData = extractJsonFromText(fullText)
+      console.log(`[analyze] taskId=${taskId} done, json=${jsonData ? 'extracted' : 'null'}`)
       wsClient.send({ type: 'analyze_done', taskId, text: fullText, json: jsonData })
     } else {
+      console.log(`[analyze] taskId=${taskId} cancelled`)
       wsClient.send({ type: 'analyze_failed', taskId, error: 'cancelled' })
     }
   } catch (e) {
+    console.log(`[analyze] taskId=${taskId} error: ${e.message}`)
     try { await captureAndUpload(page, taskId) } catch {}
     wsClient.send({ type: 'analyze_failed', taskId, error: e.message })
   } finally {
