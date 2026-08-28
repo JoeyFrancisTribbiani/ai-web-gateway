@@ -76,6 +76,7 @@ export async function getVideoTask(taskId) {
     videoUrl: data.videoUrl || undefined,
     thumbnailUrl: data.thumbnailUrl || undefined,
     result: data.result || undefined,
+    json: data.json ? safeJsonParse(data.json, null) : undefined,
     error: data.error || undefined,
     createdAt: parseInt(data.createdAt || '0', 10),
     updatedAt: parseInt(data.updatedAt || '0', 10),
