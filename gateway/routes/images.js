@@ -73,13 +73,13 @@ export async function handleImages(req, res, body) {
     json(res, errorMsg.code, formatError(errorMsg.code, errorMsg.message))
     recordRequest(vendor, false, Date.now() - startTime)
     console.log(`[image] requestId=${requestId} failed: ${errorMsg.message}`)
-    addTaskHistory({ requestId, model, vendor, taskType: 'image', status: 'failed', error: errorMsg.message, latency: Date.now() - startTime, ts: Date.now() })
+    addTaskHistory({ requestId, model, vendor, taskType: 'image', status: 'failed', error: errorMsg.message, prompt: prompt?.slice(0, 200), latency: Date.now() - startTime, ts: Date.now() })
   } else if (resultUrls) {
     json(res, 200, formatImageResponse(resultUrls))
     const latency = Date.now() - startTime
     recordRequest(vendor, true, latency)
     console.log(`[image] requestId=${requestId} done: ${resultUrls.length} images, ${latency}ms`)
-    addTaskHistory({ requestId, model, vendor, taskType: 'image', status: 'success', latency, ts: Date.now() })
+    addTaskHistory({ requestId, model, vendor, taskType: 'image', status: 'success', latency, prompt: prompt?.slice(0, 200), imageCount: resultUrls.length, ts: Date.now() })
   } else {
     json(res, 500, formatError(500, '无图片结果'))
     recordRequest(vendor, false, Date.now() - startTime)

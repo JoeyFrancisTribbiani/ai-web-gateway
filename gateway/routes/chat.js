@@ -76,7 +76,7 @@ export async function handleChat(req, res, body) {
         const latency = Date.now() - startTime
         recordRequest(vendor, true, latency)
         console.log(`[chat] requestId=${requestId} done: ${latency}ms`)
-        addTaskHistory({ requestId, model, vendor, taskType: 'chat', status: 'success', latency, ts: Date.now() })
+        addTaskHistory({ requestId, model, vendor, taskType: 'chat', status: 'success', latency, prompt: prompt?.slice(0, 200), responseLength: totalChars, ts: Date.now() })
         cleanupFiles()
       },
       onError: (code, message, screenshotUrl) => {
@@ -169,18 +169,18 @@ export async function handleChat(req, res, body) {
       json(res, errorResult.code, formatError(errorResult.code, errorResult.message))
       recordRequest(vendor, false, Date.now() - startTime)
       console.log(`[chat] requestId=${requestId} failed: ${errorResult.message}`)
-      addTaskHistory({ requestId, model, vendor, taskType: 'chat', status: 'failed', error: errorResult.message, latency: Date.now() - startTime, ts: Date.now() })
+      addTaskHistory({ requestId, model, vendor, taskType: 'chat', status: 'failed', error: errorResult.message, prompt: prompt?.slice(0, 200), latency: Date.now() - startTime, ts: Date.now() })
     } else if (fullText) {
       json(res, 200, formatChatCompletion(model, fullText))
       const latency = Date.now() - startTime
       recordRequest(vendor, true, latency)
       console.log(`[chat] requestId=${requestId} done: ${latency}ms`)
-      addTaskHistory({ requestId, model, vendor, taskType: 'chat', status: 'success', latency, ts: Date.now() })
+      addTaskHistory({ requestId, model, vendor, taskType: 'chat', status: 'success', latency, prompt: prompt?.slice(0, 200), responseLength: fullText.length, ts: Date.now() })
     } else {
       json(res, 500, formatError(500, '无回复内容'))
       recordRequest(vendor, false, Date.now() - startTime)
       console.log(`[chat] requestId=${requestId} failed: 无回复内容`)
-      addTaskHistory({ requestId, model, vendor, taskType: 'chat', status: 'failed', error: '无回复', latency: Date.now() - startTime, ts: Date.now() })
+      addTaskHistory({ requestId, model, vendor, taskType: 'chat', status: 'failed', error: '无回复', prompt: prompt?.slice(0, 200), latency: Date.now() - startTime, ts: Date.now() })
     }
   }
 }

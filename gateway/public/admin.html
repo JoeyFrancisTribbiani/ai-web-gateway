@@ -69,7 +69,9 @@ async function api(path, method = 'GET', body = null) {
     throw new Error('未授权');
   }
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-  return r.json();
+  const text = await r.text();
+  try { return JSON.parse(text); }
+  catch { throw new Error(`响应不是JSON: ${text.slice(0, 200)}`); }
 }
 
 function showPage(name) {
@@ -197,10 +199,17 @@ async function rollbackSelector(version) {
 async function loadTasks() {
   const tasks = await api('/admin/tasks');
   const el = document.getElementById('page-tasks');
-  let html = '<div class="card"><table><tr><th>请求ID</th><th>模型</th><th>厂商</th><th>类型</th><th>状态</th><th>耗时</th></tr>';
+  let html = '<div class="card"><table><tr><th>请求ID</th><th>模型</th><th>厂商</th><th>类型</th><th>状态</th><th>耗时</th><th>输入(prompt)</th><th>结果</th></tr>';
   for (const t of tasks) {
     const badge = t.status === 'success' ? 'badge-green' : 'badge-red';
-    html += `<tr><td>${t.requestId?.slice(0, 12)}</td><td>${t.model}</td><td>${t.vendor}</td><td>${t.taskType}</td><td><span class="badge ${badge}">${t.status}</span></td><td>${t.latency}ms</td></tr>`;
+    const prompt = t.prompt ? (t.prompt.length > 60 ? t.prompt.slice(0, 60) + '...' : t.prompt) : '-';
+    let result = '-';
+    if (t.status === 'success') {
+      if (t.responseLength) result = `${t.responseLength} chars`;
+      else if (t.imageCount) result = `${t.imageCount} images`;
+      else if (t.error) result = '-';
+    }
+    html += `<tr><td>${t.requestId?.slice(0, 12)}</td><td>${t.model}</td><td>${t.vendor}</td><td>${t.taskType}</td><td><span class="badge ${badge}">${t.status}</span></td><td>${t.latency}ms</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${t.prompt || ''}">${prompt}</td><td>${result}</td></tr>`;
   }
   html += '</table></div>';
   el.innerHTML = html;
@@ -209,11 +218,16 @@ async function loadTasks() {
 async function loadVideos() {
   const tasks = await api('/admin/video-tasks?pageSize=50');
   const el = document.getElementById('page-videos');
-  let html = '<div class="card"><table><tr><th>任务ID</th><th>状态</th><th>进度</th><th>Agent</th><th>耗时</th><th>操作</th></tr>';
+  let html = '<div class="card"><table><tr><th>任务ID</th><th>状态</th><th>进度</th><th>Agent</th><th>耗时</th><th>输入(prompt)</th><th>结果</th><th>操作</th></tr>';
   for (const t of tasks) {
     const badge = t.status === 'completed' ? 'badge-green' : t.status === 'failed' ? 'badge-red' : t.status === 'cancelled' ? 'badge-yellow' : 'badge-blue';
     const duration = t.createdAt ? Math.round((Date.now() - t.createdAt) / 1000) + 's' : '-';
-    html += `<tr><td>${t.id?.slice(0, 12)}</td><td><span class="badge ${badge}">${t.status}</span></td><td>${t.progress || 0}%</td><td>${t.agentId?.slice(0, 10) || '-'}</td><td>${duration}</td>`;
+    const prompt = t.prompt ? (t.prompt.length > 50 ? t.prompt.slice(0, 50) + '...' : t.prompt) : '-';
+    let result = '-';
+    if (t.status === 'completed' && t.result) result = `${t.result.length} chars`;
+    else if (t.status === 'completed' && t.videoUrl) result = '视频';
+    else if (t.json) result = 'JSON';
+    html += `<tr><td>${t.id?.slice(0, 12)}</td><td><span class="badge ${badge}">${t.status}</span></td><td>${t.progress || 0}%</td><td>${t.agentId?.slice(0, 10) || '-'}</td><td>${duration}</td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${t.prompt || ''}">${prompt}</td><td>${result}</td>`;
     if (t.status === 'generating' || t.status === 'queued') {
       html += `<td><button class="btn btn-danger btn-sm" onclick="cancelVideo('${t.id}')">取消</button></td>`;
     } else if (t.status === 'completed' && t.videoUrl) {

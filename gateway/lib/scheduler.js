@@ -399,7 +399,7 @@ export function handleAgentMessage(agentId, msg) {
       break
     }
     case 'video_submitted': {
-      // Agent 确认视频已提交
+      console.log(`[video] taskId=${msg.taskId} submitted by agent`)
       break
     }
     case 'video_progress': {
@@ -407,6 +407,7 @@ export function handleAgentMessage(agentId, msg) {
       break
     }
     case 'video_done': {
+      console.log(`[video] taskId=${msg.taskId} done, videoUrl=${msg.videoUrl?.slice(0, 80)}`)
       clearVideoTimer(msg.taskId)
       getVideoTask(msg.taskId).then(async task => {
         if (!task || task.status === 'cancelled' || task.status === 'failed') return
@@ -419,6 +420,7 @@ export function handleAgentMessage(agentId, msg) {
       break
     }
     case 'video_failed': {
+      console.log(`[video] taskId=${msg.taskId} failed: ${msg.error}`)
       clearVideoTimer(msg.taskId)
       getVideoTask(msg.taskId).then(async task => {
         if (!task || task.status === 'cancelled' || task.status === 'completed' || task.status === 'failed') return
@@ -435,6 +437,7 @@ export function handleAgentMessage(agentId, msg) {
       break
     }
     case 'analyze_done': {
+      console.log(`[analyze] taskId=${msg.taskId} done, text=${msg.text?.length || 0} chars, json=${msg.json ? 'yes' : 'no'}`)
       clearVideoTimer(msg.taskId)
       getVideoTask(msg.taskId).then(async task => {
         if (!task || task.status === 'cancelled' || task.status === 'failed') return
@@ -447,6 +450,7 @@ export function handleAgentMessage(agentId, msg) {
       break
     }
     case 'analyze_failed': {
+      console.log(`[analyze] taskId=${msg.taskId} failed: ${msg.error}`)
       clearVideoTimer(msg.taskId)
       getVideoTask(msg.taskId).then(async task => {
         if (!task || task.status === 'cancelled' || task.status === 'completed' || task.status === 'failed') return
