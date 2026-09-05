@@ -139,6 +139,7 @@ export default {
   },
 
   // 获取最新 assistant 消息文本 (多选择器 fallback, 参考 feedaccount getLastAssistantText)
+  // 排除 ChatGPT thinking/reasoning 块，只取实际回复内容
   async getLastAssistantText(page) {
     return await page.evaluate(() => {
       const selectors = [
@@ -148,7 +149,29 @@ export default {
       ]
       for (const sel of selectors) {
         const elements = document.querySelectorAll(sel)
-        if (elements.length > 0) return elements[elements.length - 1].textContent || ''
+        if (elements.length > 0) {
+          const el = elements[elements.length - 1]
+          // 克隆节点，移除 thinking/reasoning 块后再取 textContent
+          const clone = el.cloneNode(true)
+          // ChatGPT thinking 块的常见选择器
+          const thinkingSelectors = [
+            '[data-reasoning]',
+            '[class*="thinking"]',
+            '[class*="reasoning"]',
+            '[data-testid="thinking"]',
+            'div[class*="sr-only"]',
+            'details summary',
+          ]
+          for (const ts of thinkingSelectors) {
+            clone.querySelectorAll(ts).forEach(n => n.remove())
+          }
+          // 也排除 <button> 文本（如"复制"、"重新生成"等操作按钮）
+          clone.querySelectorAll('button').forEach(n => n.remove())
+          const text = clone.textContent || ''
+          if (text.trim()) return text.trim()
+          // 如果去掉 thinking 后没内容了，返回原始 textContent（可能整个回复就是 thinking）
+          return (el.textContent || '').trim()
+        }
       }
       return ''
     })
