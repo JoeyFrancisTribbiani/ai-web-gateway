@@ -191,30 +191,40 @@ async function handleChatTask(msg) {
 
     console.log(`[chat] requestId=${requestId} navigating to ${vendor}`)
     await adapter.navigate(page, selectors)
+    await adapter.dismissModal(page)
 
     if (localFiles.length > 0 && adapter.uploadFile) {
       for (const f of localFiles) {
         console.log(`[chat] requestId=${requestId} uploading file: ${f}`)
         await adapter.uploadFile(page, f, selectors)
+        await adapter.dismissModal(page)
         console.log(`[chat] requestId=${requestId} file uploaded: ${f}`)
       }
+      await page.waitForTimeout(3000)
+      await adapter.dismissModal(page)
     }
 
     console.log(`[chat] requestId=${requestId} sending prompt (${prompt?.length || 0} chars)`)
     await adapter.sendPrompt(page, prompt, selectors)
+    await adapter.dismissModal(page)
     console.log(`[chat] requestId=${requestId} prompt sent, waiting for response`)
 
     const responseStartTime = Date.now()
-    let totalChars = 0
-    let rawFirstText = ''
-    await adapter.streamResponse(page, (delta) => {
-      totalChars += delta.length
-      if (!rawFirstText && delta.length > 0) rawFirstText = delta.slice(0, 100)
-      wsClient.send({ type: 'delta', requestId, text: delta })
-    }, selectors, currentAbortController.signal)
-    console.log(`[chat] requestId=${requestId} response complete: ${totalChars} chars, ${Date.now() - responseStartTime}ms, first=${rawFirstText.slice(0, 50)}`)
+    const response = await adapter.waitForResponse(page, {
+      timeout: 300000,
+      pollInterval: parseInt(process.env.POLL_INTERVAL || '2000', 10),
+      stableCount: 3,
+    })
+    const fullText = response.text || ''
+    console.log(`[chat] requestId=${requestId} response ${response.ok ? 'complete' : 'timeout'}: ${fullText.length} chars, ${Date.now() - responseStartTime}ms`)
 
     if (!currentAbortController.signal.aborted) {
+      if (response.error) {
+        throw new Error(`[CHATGPT_ERROR] ${fullText.slice(0, 200)}`)
+      }
+      if (response.ok && fullText) {
+        wsClient.send({ type: 'delta', requestId, text: fullText })
+      }
       console.log(`[chat] requestId=${requestId} done`)
       wsClient.send({ type: 'done', requestId })
     } else {
@@ -435,28 +445,40 @@ async function handleAnalyzeTask(msg) {
 
     console.log(`[analyze] taskId=${taskId} navigating to ${vendor}`)
     await adapter.navigate(page, selectors)
+    await adapter.dismissModal(page)
 
     if (localFiles.length > 0 && adapter.uploadFile) {
       for (const f of localFiles) {
         console.log(`[analyze] taskId=${taskId} uploading file: ${f}`)
         await adapter.uploadFile(page, f, selectors)
+        await adapter.dismissModal(page)
         console.log(`[analyze] taskId=${taskId} file uploaded: ${f}`)
       }
+      // 上传后等待 3s + 清理弹窗
+      await page.waitForTimeout(3000)
+      await adapter.dismissModal(page)
     }
 
     console.log(`[analyze] taskId=${taskId} sending prompt (${prompt?.length || 0} chars)`)
     await adapter.sendPrompt(page, prompt, selectors)
     console.log(`[analyze] taskId=${taskId} prompt sent, waiting for response`)
 
-    let fullText = ''
     const responseStartTime = Date.now()
-    await adapter.streamResponse(page, (delta) => {
-      fullText += delta
-      wsClient.send({ type: 'analyze_progress', taskId, progress: 'generating' })
-    }, selectors, abortController.signal)
-    console.log(`[analyze] taskId=${taskId} response complete: ${fullText.length} chars, ${Date.now() - responseStartTime}ms`)
+    // 分析任务: 期望 JSON 回复, 最小长度 200, 稳定 5 次, 轮询 3s
+    const response = await adapter.waitForResponse(page, {
+      timeout: 1800000,  // 30 分钟 (视频分析可能很久)
+      pollInterval: 3000,
+      stableCount: 5,
+      minResponseLength: 200,
+      expectJson: true,
+    })
+    const fullText = response.text || ''
+    console.log(`[analyze] taskId=${taskId} response ${response.ok ? 'complete' : 'timeout'}: ${fullText.length} chars, ${Date.now() - responseStartTime}ms`)
 
     if (!abortController.signal.aborted) {
+      if (response.error) {
+        throw new Error(`[CHATGPT_ERROR] ${fullText.slice(0, 200)}`)
+      }
       // 提取 JSON (参考 feedaccount 分段脚本提取逻辑)
       const jsonData = extractJsonFromText(fullText)
       console.log(`[analyze] taskId=${taskId} done, json=${jsonData ? 'extracted' : 'null'}`)
