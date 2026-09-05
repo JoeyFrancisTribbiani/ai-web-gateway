@@ -36,7 +36,8 @@ export async function updateVideoTask(taskId, updates) {
   if (!oldData || !oldData.status) return null
 
   // 状态转换守卫：不允许从终态转为其他状态
-  const terminalStates = ['completed', 'failed', 'cancelled']
+  // 例外: failed → completed 允许 (Agent 断线重连后重发结果覆盖)
+  const terminalStates = ['completed', 'cancelled']
   if (updates.status && oldData.status && terminalStates.includes(oldData.status) && oldData.status !== updates.status) {
     return null  // 当前已是终态，拒绝覆盖
   }

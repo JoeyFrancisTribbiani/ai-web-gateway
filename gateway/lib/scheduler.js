@@ -410,8 +410,10 @@ export function handleAgentMessage(agentId, msg) {
       console.log(`[video] taskId=${msg.taskId} done, videoUrl=${msg.videoUrl?.slice(0, 80)}`)
       clearVideoTimer(msg.taskId)
       getVideoTask(msg.taskId).then(async task => {
-        if (!task || task.status === 'cancelled' || task.status === 'failed') return
+        if (!task || task.status === 'cancelled') return
+        // 即使 task 被断线标记为 failed，也允许 Agent 重发的结果覆盖
         await updateVideoTask(msg.taskId, { status: 'completed', videoUrl: msg.videoUrl, updatedAt: Date.now() })
+        console.log(`[video] taskId=${msg.taskId} result saved (was ${task.status})`)
         if (task.model) {
           await wakeupVideoQueue(task.model)
           wakeupAnalyzeQueue(task.model).catch(() => {})
@@ -440,8 +442,10 @@ export function handleAgentMessage(agentId, msg) {
       console.log(`[analyze] taskId=${msg.taskId} done, text=${msg.text?.length || 0} chars, json=${msg.json ? 'yes' : 'no'}`)
       clearVideoTimer(msg.taskId)
       getVideoTask(msg.taskId).then(async task => {
-        if (!task || task.status === 'cancelled' || task.status === 'failed') return
+        if (!task || task.status === 'cancelled') return
+        // 即使 task 被断线标记为 failed，也允许 Agent 重发的结果覆盖
         await updateVideoTask(msg.taskId, { status: 'completed', result: msg.text, json: msg.json, updatedAt: Date.now() })
+        console.log(`[analyze] taskId=${msg.taskId} result saved (was ${task.status})`)
         if (task.model) {
           await wakeupAnalyzeQueue(task.model)
           wakeupVideoQueue(task.model).catch(() => {})
