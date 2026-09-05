@@ -218,66 +218,36 @@ export default {
     return errorKeywords.some(kw => lower.includes(kw.toLowerCase()))
   },
 
-  // 检测 ChatGPT 是否还在 thinking/reasoning（生成前的思考阶段）
-  async isThinking(page) {
-    return await page.evaluate(() => {
-      // ChatGPT thinking 块的 UI 元素（思考中时显示）
-      const thinkingSelectors = [
-        '[data-reasoning]',
-        '[class*="thinking"]',
-        '[class*="reasoning"]',
-        '[data-testid="thinking"]',
-        'button[class*="analyze"]',
-      ]
-      for (const sel of thinkingSelectors) {
-        const els = document.querySelectorAll(sel)
-        for (const el of els) {
-          if (el.offsetParent !== null) return true  // 可见
-        }
-      }
-      // 也检查页面上是否有 "Thinking" / "思考中" 等文本提示
-      const body = document.body.innerText
-      if (/^(Thinking|思考中|Reasoning)\b/m.test(body)) return true
-      return false
-    })
-  },
-
   async streamResponse(page, onChunk, selectors, signal) {
-    const pollInterval = parseInt(process.env.POLL_INTERVAL || '500', 10)
-    const stableThreshold = 3
-    const startTimeout = 60000 // 等待回复开始, 最多 60s
+    // 对齐 feedaccount: 非流式，等回复稳定后一次性取全文
+    // onChunk 只在最终调用一次，把完整文本作为 delta 传出
+    const timeout = 300000  // 总超时 5 分钟
+    const pollInterval = parseInt(process.env.POLL_INTERVAL || '2000', 10)
+    const stableThreshold = 3  // 文本稳定 3 次（6 秒不变）
 
     // 记录发送前的文本
     const preText = await this.getLastAssistantText(page)
 
-    // ===== 阶段0: 等待 thinking 结束 =====
-    // ChatGPT 会先 thinking 再输出回复，thinking 期间不要取文本
-    const thinkStartTime = Date.now()
-    while (Date.now() - thinkStartTime < startTimeout) {
+    // ===== 阶段1: 等待新回复开始 =====
+    const startTime = Date.now()
+    let responseStarted = false
+    while (Date.now() - startTime < 60000) {
       if (signal?.aborted) return
-      const thinking = await this.isThinking(page)
-      const generating = await this.isStillGenerating(page)
-      // 还在 thinking 或还在生成但文本没变化 → 继续等
-      if (thinking) {
-        await page.waitForTimeout(pollInterval)
-        continue
-      }
-      // 不在 thinking 了，检查是否开始输出实际文本
       const currentText = await this.getLastAssistantText(page)
-      if (currentText && currentText !== preText) break
-      if (generating) {
-        // 还在生成但没有 thinking 也没有新文本 → 继续等
-        await page.waitForTimeout(pollInterval)
-        continue
-      }
-      break
+      if (currentText && currentText !== preText) { responseStarted = true; break }
+      if (await this.isStillGenerating(page)) { responseStarted = true; break }
+      await page.waitForTimeout(pollInterval)
+    }
+    if (!responseStarted) {
+      // 可能回复极快已结束，继续走稳定计数
     }
 
-    // ===== 阶段1: 收集回复 + 等待稳定 =====
+    // ===== 阶段2: 轮询等待文本稳定 =====
     let lastText = preText
     let stableCount = 0
 
-    while (!signal?.aborted) {
+    while (Date.now() - startTime < timeout) {
+      if (signal?.aborted) return
       const currentText = await this.getLastAssistantText(page)
 
       // 检测 ChatGPT 错误提示
@@ -285,17 +255,12 @@ export default {
         throw new Error(`[CHATGPT_ERROR] ${currentText.slice(0, 200)}`)
       }
 
-      // 检测增量
-      if (currentText.length > lastText.length && currentText !== preText) {
-        const delta = currentText.slice(lastText.length)
-        if (delta) onChunk(delta)
+      // 检测增量（仅记录，不推送 delta）
+      if (currentText !== lastText) {
         lastText = currentText
         stableCount = 0
-      } else if (currentText === lastText) {
-        stableCount++
       } else {
-        lastText = currentText
-        stableCount = 0
+        stableCount++
       }
 
       // 检查是否还在生成
@@ -304,10 +269,11 @@ export default {
       // 生成完成: 不在生成 + 文本稳定 + 有新回复
       if (!stillGenerating && stableCount >= stableThreshold && currentText && currentText !== preText) {
         // 短回复需要更多稳定次数
-        if (currentText.length < 100 && stableCount < 10) {
-          // 继续等待
-        } else {
-          break
+        const requiredStable = currentText.length < 100 ? 10 : stableThreshold
+        if (stableCount >= requiredStable) {
+          // 一次性把完整文本作为 delta 推送
+          onChunk(currentText)
+          return
         }
       }
 
@@ -321,6 +287,10 @@ export default {
       }
 
       await page.waitForTimeout(pollInterval)
+    }
+    // 超时但可能有部分文本，返回已有的
+    if (lastText && lastText !== preText) {
+      onChunk(lastText)
     }
   },
 
