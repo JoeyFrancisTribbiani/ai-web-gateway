@@ -22,6 +22,8 @@ export function connect(onMessage, onReconnect) {
   ws.on('open', () => {
     connected = true
     console.log('[ws] connected')
+    // 重连后重发积压消息
+    if (!isFirstConnect) flushPendingMessages()
     if (!isFirstConnect && onReconnectHandler) {
       onReconnectHandler()
     }
@@ -54,12 +56,33 @@ export function connect(onMessage, onReconnect) {
   })
 }
 
+// 断线期间待发送的消息队列
+const pendingMessages = []
+
 export function send(msg) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(msg))
     return true
   }
+  console.log(`[ws] send failed (not connected), message queued: ${msg.type}`)
+  // WebSocket 断开时，将消息存入待发队列，重连后自动重发
+  pendingMessages.push(msg)
   return false
+}
+
+// 重连后重发积压消息
+function flushPendingMessages() {
+  while (pendingMessages.length > 0) {
+    const msg = pendingMessages.shift()
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      console.log(`[ws] flushing queued message: ${msg.type}`)
+      ws.send(JSON.stringify(msg))
+    } else {
+      // 又断了，放回队列
+      pendingMessages.unshift(msg)
+      break
+    }
+  }
 }
 
 export function isConnected() {
