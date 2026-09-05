@@ -11,7 +11,7 @@ export default {
   async navigate(page, selectors) {
     const url = 'https://chatgpt.com'
     if (!page.url().includes('chatgpt.com')) {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 })
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 })
       await page.waitForTimeout(2000)
     }
     // 点击新对话
@@ -24,7 +24,7 @@ export default {
 
   async uploadFile(page, filePath, selectors) {
     const inputSel = selectors.input || '#prompt-textarea'
-    await page.waitForSelector(inputSel, { timeout: 15000 })
+    await page.waitForSelector(inputSel, { timeout: 60000 })
 
     // 方式1: + 按钮 → filechooser
     const plusBtnSelectors = [
@@ -37,8 +37,8 @@ export default {
     for (const sel of plusBtnSelectors) {
       try {
         if (await page.locator(sel).count() > 0) {
-          const fileChooserPromise = page.waitForEvent('filechooser', { timeout: 10000 })
-          await page.click(sel, { timeout: 5000 })
+          const fileChooserPromise = page.waitForEvent('filechooser', { timeout: 30000 })
+          await page.click(sel, { timeout: 10000 })
           const fileChooser = await fileChooserPromise
           await fileChooser.setFiles(filePath)
           await page.waitForTimeout(3000)
@@ -87,7 +87,7 @@ export default {
 
   async sendPrompt(page, prompt, selectors) {
     const inputSel = selectors.input || '#prompt-textarea'
-    await page.waitForSelector(inputSel, { timeout: 15000, state: 'visible' })
+    await page.waitForSelector(inputSel, { timeout: 60000, state: 'visible' })
     await page.click(inputSel)
     await page.waitForTimeout(200)
 
@@ -122,7 +122,7 @@ export default {
           }, sel)
 
           if (state.found && !state.disabled && state.visible) {
-            await page.click(sel, { timeout: 5000 })
+            await page.click(sel, { timeout: 10000 })
             sent = true
             break
           }
