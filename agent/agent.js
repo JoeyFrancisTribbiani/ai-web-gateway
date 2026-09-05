@@ -206,11 +206,13 @@ async function handleChatTask(msg) {
 
     const responseStartTime = Date.now()
     let totalChars = 0
+    let rawFirstText = ''
     await adapter.streamResponse(page, (delta) => {
       totalChars += delta.length
+      if (!rawFirstText && delta.length > 0) rawFirstText = delta.slice(0, 100)
       wsClient.send({ type: 'delta', requestId, text: delta })
     }, selectors, currentAbortController.signal)
-    console.log(`[chat] requestId=${requestId} response complete: ${totalChars} chars, ${Date.now() - responseStartTime}ms`)
+    console.log(`[chat] requestId=${requestId} response complete: ${totalChars} chars, ${Date.now() - responseStartTime}ms, first=${rawFirstText.slice(0, 50)}`)
 
     if (!currentAbortController.signal.aborted) {
       console.log(`[chat] requestId=${requestId} done`)

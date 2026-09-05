@@ -161,15 +161,25 @@ export default {
             '[data-testid="thinking"]',
             'div[class*="sr-only"]',
             'details summary',
+            // ChatGPT 新版 thinking 块: <div> + <button class*="analyze">
+            'button[class*="analyze"]',
+            'div[class*="whitespace-pre"]',
+            // data-part 属性的 thinking 块
+            '[data-part="thinking"]',
+            '[data-part="analysis"]',
           ]
           for (const ts of thinkingSelectors) {
             clone.querySelectorAll(ts).forEach(n => n.remove())
           }
           // 也排除 <button> 文本（如"复制"、"重新生成"等操作按钮）
           clone.querySelectorAll('button').forEach(n => n.remove())
-          const text = clone.textContent || ''
-          if (text.trim()) return text.trim()
-          // 如果去掉 thinking 后没内容了，返回原始 textContent（可能整个回复就是 thinking）
+          let text = clone.textContent || ''
+          text = text.trim()
+          if (text) return text
+          // 如果去掉 thinking 后没内容了，尝试找 markdown 容器
+          const md = el.querySelector('div[class*="markdown"], .markdown')
+          if (md) return (md.textContent || '').trim()
+          // 最后回退到原始 textContent
           return (el.textContent || '').trim()
         }
       }
@@ -208,6 +218,30 @@ export default {
     return errorKeywords.some(kw => lower.includes(kw.toLowerCase()))
   },
 
+  // 检测 ChatGPT 是否还在 thinking/reasoning（生成前的思考阶段）
+  async isThinking(page) {
+    return await page.evaluate(() => {
+      // ChatGPT thinking 块的 UI 元素（思考中时显示）
+      const thinkingSelectors = [
+        '[data-reasoning]',
+        '[class*="thinking"]',
+        '[class*="reasoning"]',
+        '[data-testid="thinking"]',
+        'button[class*="analyze"]',
+      ]
+      for (const sel of thinkingSelectors) {
+        const els = document.querySelectorAll(sel)
+        for (const el of els) {
+          if (el.offsetParent !== null) return true  // 可见
+        }
+      }
+      // 也检查页面上是否有 "Thinking" / "思考中" 等文本提示
+      const body = document.body.innerText
+      if (/^(Thinking|思考中|Reasoning)\b/m.test(body)) return true
+      return false
+    })
+  },
+
   async streamResponse(page, onChunk, selectors, signal) {
     const pollInterval = parseInt(process.env.POLL_INTERVAL || '500', 10)
     const stableThreshold = 3
@@ -216,21 +250,30 @@ export default {
     // 记录发送前的文本
     const preText = await this.getLastAssistantText(page)
 
-    // ===== 阶段1: 等待新回复开始 =====
-    let responseStarted = false
-    const startTime = Date.now()
-    while (Date.now() - startTime < startTimeout) {
+    // ===== 阶段0: 等待 thinking 结束 =====
+    // ChatGPT 会先 thinking 再输出回复，thinking 期间不要取文本
+    const thinkStartTime = Date.now()
+    while (Date.now() - thinkStartTime < startTimeout) {
       if (signal?.aborted) return
+      const thinking = await this.isThinking(page)
+      const generating = await this.isStillGenerating(page)
+      // 还在 thinking 或还在生成但文本没变化 → 继续等
+      if (thinking) {
+        await page.waitForTimeout(pollInterval)
+        continue
+      }
+      // 不在 thinking 了，检查是否开始输出实际文本
       const currentText = await this.getLastAssistantText(page)
-      if (currentText && currentText !== preText) { responseStarted = true; break }
-      if (await this.isStillGenerating(page)) { responseStarted = true; break }
-      await page.waitForTimeout(pollInterval)
-    }
-    if (!responseStarted) {
-      // 未检测到新回复开始, 但不报错, 继续走稳定计数 (可能回复极快已结束)
+      if (currentText && currentText !== preText) break
+      if (generating) {
+        // 还在生成但没有 thinking 也没有新文本 → 继续等
+        await page.waitForTimeout(pollInterval)
+        continue
+      }
+      break
     }
 
-    // ===== 阶段2: 收集回复 + 等待稳定 =====
+    // ===== 阶段1: 收集回复 + 等待稳定 =====
     let lastText = preText
     let stableCount = 0
 
