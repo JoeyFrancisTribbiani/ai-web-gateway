@@ -224,10 +224,13 @@ async function loadVideos() {
     const duration = t.createdAt ? Math.round((Date.now() - t.createdAt) / 1000) + 's' : '-';
     const prompt = t.prompt ? (t.prompt.length > 50 ? t.prompt.slice(0, 50) + '...' : t.prompt) : '-';
     let result = '-';
-    if (t.status === 'completed' && t.result) result = `${t.result.length} chars`;
-    else if (t.status === 'completed' && t.videoUrl) result = '视频';
-    else if (t.json) result = 'JSON';
-    html += `<tr><td>${t.id?.slice(0, 12)}</td><td><span class="badge ${badge}">${t.status}</span></td><td>${t.progress || 0}%</td><td>${t.agentId?.slice(0, 10) || '-'}</td><td>${duration}</td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${t.prompt || ''}">${prompt}</td><td>${result}</td>`;
+    if (t.status === 'completed' && t.result) {
+      const resultText = t.result.length > 50 ? t.result.slice(0, 50) + '...' : t.result;
+      result = `<span style="cursor:pointer;color:#38bdf8;" onclick="showDetail('${t.id}', 'result')" title="点击查看完整内容">${resultText}</span>`;
+    }
+    else if (t.status === 'completed' && t.videoUrl) result = `<a href="${t.videoUrl}" target="_blank" class="btn btn-primary btn-sm">查看</a>`;
+    else if (t.json) result = `<span style="cursor:pointer;color:#38bdf8;" onclick="showDetail('${t.id}', 'json')" title="点击查看JSON">JSON</span>`;
+    html += `<tr><td>${t.id?.slice(0, 12)}</td><td><span class="badge ${badge}">${t.status}</span></td><td>${t.progress || 0}%</td><td>${t.agentId?.slice(0, 10) || '-'}</td><td>${duration}</td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(t.prompt || '').replace(/"/g, '&quot;')}">${prompt}</td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${result}</td>`;
     if (t.status === 'generating' || t.status === 'queued') {
       html += `<td><button class="btn btn-danger btn-sm" onclick="cancelVideo('${t.id}')">取消</button></td>`;
     } else if (t.status === 'completed' && t.videoUrl) {
@@ -387,6 +390,31 @@ function closeNovnc() {
 async function cancelVideo(taskId) {
   await api(`/admin/video-tasks/${taskId}/cancel`, 'POST');
   loadVideos();
+}
+
+async function showDetail(taskId, field) {
+  const task = await api(`/admin/video-tasks?pageSize=100`);
+  const t = task.find(x => x.id === taskId);
+  if (!t) return;
+  let content = '';
+  if (field === 'result') content = t.result || '';
+  else if (field === 'json') content = t.json ? JSON.stringify(t.json, null, 2) : '';
+  // 创建/复用详情弹窗
+  let modal = document.getElementById('detail-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'detail-modal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;';
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `
+    <div style="margin-bottom:12px;color:#e2e8f0;font-size:14px;">
+      <span>${taskId.slice(0,12)} - ${field}</span>
+      <button class="btn btn-danger btn-sm" style="margin-left:12px;" onclick="document.getElementById('detail-modal').style.display='none'">关闭</button>
+    </div>
+    <textarea readonly style="width:min(900px,95vw);height:min(600px,80vh);background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:12px;font-family:monospace;font-size:13px;resize:none;">${content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+  `;
+  modal.style.display = 'flex';
 }
 
 function stat(label, value) {
