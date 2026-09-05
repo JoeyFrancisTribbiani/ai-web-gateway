@@ -30,6 +30,7 @@ export async function handleAdmin(req, res, path, method, body, ip) {
   if (path.startsWith('/admin/config/') && method === 'PUT') return adminPutConfig(res, path, body, ip)
   if (path === '/admin/tasks' && method === 'GET') return adminTasks(req, res)
   if (path === '/admin/video-tasks' && method === 'GET') return adminVideoTasks(req, res)
+  if (path.startsWith('/admin/video-tasks/') && !path.endsWith('/cancel') && method === 'GET') return adminVideoTaskDetail(res, path)
   if (path.startsWith('/admin/video-tasks/') && path.endsWith('/cancel') && method === 'POST') return adminVideoCancel(res, path, ip)
   if (path === '/admin/files' && method === 'GET') return adminFiles(res)
   if (path === '/admin/files/cleanup' && method === 'DELETE') return adminFilesCleanup(res, ip)
@@ -219,6 +220,14 @@ async function adminVideoTasks(req, res) {
   const pageSize = parseInt(url.searchParams.get('pageSize') || '20', 10)
   const tasks = await getVideoTaskList({ status, vendor, page, pageSize })
   json(res, 200, tasks)
+}
+
+async function adminVideoTaskDetail(res, path) {
+  const taskId = path.split('/')[3]
+  const { getVideoTask } = await import('../lib/taskStore.js')
+  const task = await getVideoTask(taskId)
+  if (!task) return json(res, 404, { error: 'task not found' })
+  json(res, 200, task)
 }
 
 async function adminVideoCancel(res, path, ip) {

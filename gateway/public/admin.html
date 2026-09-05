@@ -393,13 +393,11 @@ async function cancelVideo(taskId) {
 }
 
 async function showDetail(taskId, field) {
-  const task = await api(`/admin/video-tasks?pageSize=100`);
-  const t = task.find(x => x.id === taskId);
-  if (!t) return;
+  const t = await api(`/admin/video-tasks/${taskId}`);
   let content = '';
   if (field === 'result') content = t.result || '';
   else if (field === 'json') content = t.json ? JSON.stringify(t.json, null, 2) : '';
-  // 创建/复用详情弹窗
+  else if (field === 'prompt') content = t.prompt || '';
   let modal = document.getElementById('detail-modal');
   if (!modal) {
     modal = document.createElement('div');
